@@ -1,0 +1,14 @@
+# Ralph Progress Log
+Started: 2026-01-22
+Project: TheLifeCo Self-Improving Content Marketing Assistant
+
+## Codebase Patterns
+- Virtual environment: source .venv/bin/activate
+- Quality checks: ruff check content_assistant/ tests/ && pytest tests/ -v -k 'not integration'
+- Detailed implementation specs are in PLAN.md (read the relevant story section before implementing)
+- Use Python 3.13+ features where appropriate
+- All modules should have proper docstrings and type hints
+- Tests go in tests/ directory, mirroring the package structure
+- Environment variables loaded from .env file using python-dotenv
+
+---

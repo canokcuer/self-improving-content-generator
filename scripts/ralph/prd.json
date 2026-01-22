@@ -1,0 +1,226 @@
+{
+  "branchName": "ralph/content-assistant",
+  "projectName": "TheLifeCo Content Marketing Assistant",
+  "qualityChecks": [
+    "source .venv/bin/activate && ruff check content_assistant/ tests/",
+    "source .venv/bin/activate && pytest tests/ -v -k 'not integration'"
+  ],
+  "stories": [
+    {
+      "id": "story-1",
+      "title": "Initialize Project Structure",
+      "epic": "Epic 1: Project Setup",
+      "priority": 1,
+      "passes": false,
+      "description": "Create complete directory structure for content_assistant package with all subdirectories, init files, and requirements.txt"
+    },
+    {
+      "id": "story-2",
+      "title": "Set Up Configuration Module",
+      "epic": "Epic 1: Project Setup",
+      "priority": 2,
+      "passes": false,
+      "description": "Create robust configuration module that loads environment variables, provides defaults, and validates required variables"
+    },
+    {
+      "id": "story-3",
+      "title": "Create Supabase Client Module",
+      "epic": "Epic 2: Supabase Database",
+      "priority": 3,
+      "passes": false,
+      "description": "Create Supabase client module with regular and admin clients for database operations"
+    },
+    {
+      "id": "story-4",
+      "title": "Create Database Schema",
+      "epic": "Epic 2: Supabase Database",
+      "priority": 4,
+      "passes": false,
+      "description": "Create complete database schema SQL with 5 tables: knowledge_chunks, content_generations, experiments, experiment_assignments, api_costs"
+    },
+    {
+      "id": "story-5",
+      "title": "Build Document Loader",
+      "epic": "Epic 3: RAG Foundation",
+      "priority": 5,
+      "passes": false,
+      "description": "Create document loader module to parse PDF and text files into plain text for chunking"
+    },
+    {
+      "id": "story-6",
+      "title": "Build Text Chunker",
+      "epic": "Epic 3: RAG Foundation",
+      "priority": 6,
+      "passes": false,
+      "description": "Create text chunking module with overlapping chunks and paragraph-aware breaking"
+    },
+    {
+      "id": "story-7",
+      "title": "Build Embedding Module",
+      "epic": "Epic 3: RAG Foundation",
+      "priority": 7,
+      "passes": false,
+      "description": "Create Voyage AI embedding module for generating 1024-dimensional embeddings"
+    },
+    {
+      "id": "story-8",
+      "title": "Build Vector Store Operations",
+      "epic": "Epic 3: RAG Foundation",
+      "priority": 8,
+      "passes": false,
+      "description": "Create vector store operations for storing and retrieving embeddings from Supabase pgvector"
+    },
+    {
+      "id": "story-9",
+      "title": "Build Knowledge Base Loader",
+      "epic": "Epic 3: RAG Foundation",
+      "priority": 9,
+      "passes": false,
+      "description": "Create end-to-end knowledge base loader that combines loader, chunker, embedder, and vector store"
+    },
+    {
+      "id": "story-10",
+      "title": "Build Claude Client Module",
+      "epic": "Epic 4: Content Generation",
+      "priority": 10,
+      "passes": false,
+      "description": "Create Anthropic Claude client module with cost tracking and retry logic"
+    },
+    {
+      "id": "story-11",
+      "title": "Build Socratic Brief Questionnaire",
+      "epic": "Epic 4: Content Generation",
+      "priority": 11,
+      "passes": false,
+      "description": "Create the 13-question Socratic questionnaire data structures and validation"
+    },
+    {
+      "id": "story-12",
+      "title": "Build Content Preview Generator",
+      "epic": "Epic 4: Content Generation",
+      "priority": 12,
+      "passes": false,
+      "description": "Create preview generator that produces hook, hook type, open loops, and promise"
+    },
+    {
+      "id": "story-13",
+      "title": "Build Content Generator Tool",
+      "epic": "Epic 4: Content Generation",
+      "priority": 13,
+      "passes": false,
+      "description": "Create full content generator that uses approved preview to generate complete content"
+    },
+    {
+      "id": "story-14",
+      "title": "Build Few-Shot Example Retriever",
+      "epic": "Epic 5: Content Review",
+      "priority": 14,
+      "passes": false,
+      "description": "Create retriever for finding similar high-performing content examples"
+    },
+    {
+      "id": "story-15",
+      "title": "Build Wellness Verifier Tool",
+      "epic": "Epic 5: Content Review",
+      "priority": 15,
+      "passes": false,
+      "description": "Create wellness verification tool that checks content against TheLifeCo knowledge base"
+    },
+    {
+      "id": "story-16",
+      "title": "Build Engagement Analyzer Tool",
+      "epic": "Epic 6: Signal Collection",
+      "priority": 16,
+      "passes": false,
+      "description": "Create engagement analysis tool for evaluating content hooks and retention"
+    },
+    {
+      "id": "story-17",
+      "title": "Build Signal Storage Module",
+      "epic": "Epic 6: Signal Collection",
+      "priority": 17,
+      "passes": false,
+      "description": "Create signal storage for user feedback (ratings, checkboxes, implicit signals)"
+    },
+    {
+      "id": "story-18",
+      "title": "Build Signal-Derived Ranker",
+      "epic": "Epic 6: Signal Collection",
+      "priority": 18,
+      "passes": false,
+      "description": "Create ranker that combines semantic similarity with signal scores for few-shot selection"
+    },
+    {
+      "id": "story-19",
+      "title": "Build Experiment Manager",
+      "epic": "Epic 7: Experiment Framework",
+      "priority": 19,
+      "passes": false,
+      "description": "Create A/B experiment framework for variant assignment and signal collection"
+    },
+    {
+      "id": "story-20",
+      "title": "Build Main App Shell",
+      "epic": "Epic 8: Streamlit UI",
+      "priority": 20,
+      "passes": false,
+      "description": "Create main Streamlit app shell with navigation between CREATE and REVIEW modes"
+    },
+    {
+      "id": "story-21",
+      "title": "Build Authentication Module",
+      "epic": "Epic 8: Streamlit UI",
+      "priority": 21,
+      "passes": false,
+      "description": "Create Supabase authentication integration for Streamlit"
+    },
+    {
+      "id": "story-22",
+      "title": "Build CREATE Mode UI",
+      "epic": "Epic 8: Streamlit UI",
+      "priority": 22,
+      "passes": false,
+      "description": "Create CREATE mode UI with 13-question form, preview, and content generation flow"
+    },
+    {
+      "id": "story-23",
+      "title": "Build REVIEW Mode UI",
+      "epic": "Epic 8: Streamlit UI",
+      "priority": 23,
+      "passes": false,
+      "description": "Create REVIEW mode UI for content analysis and verification"
+    },
+    {
+      "id": "story-24",
+      "title": "Build History Sidebar",
+      "epic": "Epic 8: Streamlit UI",
+      "priority": 24,
+      "passes": false,
+      "description": "Create sidebar showing past generations with ability to reload and reuse"
+    },
+    {
+      "id": "story-25",
+      "title": "Integrate All Components",
+      "epic": "Epic 9: Integration & Polish",
+      "priority": 25,
+      "passes": false,
+      "description": "Wire all components together and verify end-to-end flow works"
+    },
+    {
+      "id": "story-26",
+      "title": "Add Error Handling & Loading States",
+      "epic": "Epic 9: Integration & Polish",
+      "priority": 26,
+      "passes": false,
+      "description": "Add comprehensive error handling, loading states, and user feedback"
+    },
+    {
+      "id": "story-27",
+      "title": "Build Monitoring Dashboard",
+      "epic": "Epic 9: Integration & Polish",
+      "priority": 27,
+      "passes": false,
+      "description": "Create monitoring dashboard for API costs, usage, and budget tracking"
+    }
+  ]
+}
