@@ -21,7 +21,17 @@ def check_authentication() -> bool:
     # Check for OAuth callback
     _handle_oauth_callback()
 
+    # Check for password reset callback
+    if _is_password_reset_callback():
+        return False  # Show reset form instead of main app
+
     return st.session_state.get("authenticated", False)
+
+
+def _is_password_reset_callback() -> bool:
+    """Check if this is a password reset callback."""
+    query_params = st.query_params
+    return "reset" in query_params or "type" in query_params and query_params.get("type") == "recovery"
 
 
 def get_current_user() -> Optional[dict]:
@@ -85,6 +95,10 @@ def show_login_form() -> bool:
     Returns:
         True if login successful, False otherwise
     """
+    # Check if this is a password reset callback
+    if _is_password_reset_callback():
+        return _show_reset_password_form()
+
     st.markdown("## Welcome to TheLifeCo Content Assistant")
     st.markdown("*Self-improving AI content assistant for wellness marketing*")
 
@@ -174,6 +188,72 @@ def show_login_form() -> bool:
 
                     except Exception as e:
                         st.error(f"Signup failed: {str(e)}")
+
+    return False
+
+
+def _show_reset_password_form() -> bool:
+    """Display password reset form.
+
+    Returns:
+        True if password reset successful, False otherwise
+    """
+    st.markdown("## Reset Your Password")
+    st.markdown("Enter your new password below.")
+
+    with st.form("reset_password_form"):
+        new_password = st.text_input("New Password", type="password")
+        confirm_password = st.text_input("Confirm New Password", type="password")
+
+        submitted = st.form_submit_button("Update Password", type="primary", use_container_width=True)
+
+        if submitted:
+            if not new_password or not confirm_password:
+                st.error("Please fill in both password fields.")
+                return False
+
+            if new_password != confirm_password:
+                st.error("Passwords do not match.")
+                return False
+
+            if len(new_password) < 6:
+                st.error("Password must be at least 6 characters.")
+                return False
+
+            try:
+                client = get_client()
+
+                # Get access token from URL (Supabase sends it in the hash/query)
+                query_params = st.query_params
+                access_token = query_params.get("access_token")
+
+                if access_token:
+                    # Set the session first
+                    refresh_token = query_params.get("refresh_token", "")
+                    client.auth.set_session(access_token, refresh_token)
+
+                # Update the password
+                client.auth.update_user({"password": new_password})
+
+                st.success("Password updated successfully! You can now log in with your new password.")
+
+                # Clear URL params
+                st.query_params.clear()
+
+                # Show link to login
+                if st.button("Go to Login"):
+                    st.rerun()
+
+                return True
+
+            except Exception as e:
+                st.error(f"Failed to update password: {str(e)}")
+                return False
+
+    st.markdown("---")
+    if st.button("Back to Login"):
+        st.query_params.clear()
+        st.rerun()
 
     return False
 
