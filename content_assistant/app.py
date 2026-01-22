@@ -3,6 +3,12 @@
 TheLifeCo Content Marketing Assistant - Self-improving AI content generation.
 """
 
+import sys
+from pathlib import Path
+
+# Add parent directory to path for Streamlit Cloud
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import streamlit as st
 
 # Page configuration - must be first Streamlit command
