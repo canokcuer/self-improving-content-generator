@@ -95,7 +95,8 @@ def show_login_form() -> bool:
                         })
 
                         if response.user:
-                            st.success("Account created! Please check your email to verify.")
+                            st.success("Account created! You can now log in.")
+                            st.rerun()
                         else:
                             st.error("Signup failed. Please try again.")
 
