@@ -58,6 +58,7 @@ def embed_text(
             texts=[text],
             model=model,
             input_type=input_type,
+            output_dimension=config.embedding_dimension,
         )
 
         if not result.embeddings or len(result.embeddings) == 0:
@@ -116,6 +117,7 @@ def embed_texts(
                 texts=batch,
                 model=model,
                 input_type=input_type,
+                output_dimension=config.embedding_dimension,
             )
 
             if not result.embeddings:
