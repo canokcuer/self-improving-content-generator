@@ -22,10 +22,52 @@ from content_assistant.review.signals import store_generation_signals
 from content_assistant.review.few_shot import get_few_shot_examples
 
 
+def _render_step_indicator(steps: list, current_step: str) -> None:
+    """Render a modern step indicator."""
+    current_index = steps.index(current_step) if current_step in steps else 0
+
+    # Create step indicator HTML
+    step_html = '<div style="display: flex; justify-content: space-between; margin-bottom: 2rem;">'
+
+    for i, step in enumerate(steps):
+        if i < current_index:
+            # Completed step
+            step_html += f'''
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem;
+                            background: #D1FAE5; border-radius: 8px; flex: 1; margin: 0 0.25rem;">
+                    <span style="color: #059669; font-weight: 600;">✓</span>
+                    <span style="color: #059669; font-size: 0.875rem; font-weight: 500;">{step.title()}</span>
+                </div>
+            '''
+        elif i == current_index:
+            # Current step
+            step_html += f'''
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem;
+                            background: #EDF7F0; border-radius: 8px; border: 2px solid #2D5A3D; flex: 1; margin: 0 0.25rem;">
+                    <span style="background: #2D5A3D; color: white; width: 20px; height: 20px;
+                                border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                                font-size: 0.75rem; font-weight: 600;">{i + 1}</span>
+                    <span style="color: #2D5A3D; font-size: 0.875rem; font-weight: 600;">{step.title()}</span>
+                </div>
+            '''
+        else:
+            # Pending step
+            step_html += f'''
+                <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem;
+                            background: #F3F4F6; border-radius: 8px; flex: 1; margin: 0 0.25rem;">
+                    <span style="background: #D1D5DB; color: white; width: 20px; height: 20px;
+                                border-radius: 50%; display: flex; align-items: center; justify-content: center;
+                                font-size: 0.75rem; font-weight: 600;">{i + 1}</span>
+                    <span style="color: #9CA3AF; font-size: 0.875rem; font-weight: 500;">{step.title()}</span>
+                </div>
+            '''
+
+    step_html += '</div>'
+    st.markdown(step_html, unsafe_allow_html=True)
+
+
 def render_create_mode() -> None:
     """Render the CREATE mode interface."""
-    st.header("Create Content")
-
     # Initialize session state
     if "current_brief" not in st.session_state:
         st.session_state.current_brief = None
@@ -39,19 +81,8 @@ def render_create_mode() -> None:
     # Step indicator
     steps = ["brief", "preview", "content", "review"]
     current_step = st.session_state.generation_step
-    step_index = steps.index(current_step) if current_step in steps else 0
 
-    cols = st.columns(4)
-    for i, step in enumerate(steps):
-        with cols[i]:
-            if i < step_index:
-                st.success(f"**{i+1}. {step.title()}**")
-            elif i == step_index:
-                st.info(f"**{i+1}. {step.title()}**")
-            else:
-                st.markdown(f"{i+1}. {step.title()}")
-
-    st.divider()
+    _render_step_indicator(steps, current_step)
 
     # Render current step
     if current_step == "brief":
@@ -66,8 +97,16 @@ def render_create_mode() -> None:
 
 def _render_brief_form() -> None:
     """Render the 13-question brief form."""
-    st.subheader("Content Brief")
-    st.markdown("Answer these questions to guide your content creation.")
+    st.markdown("""
+        <div style="margin-bottom: 1.5rem;">
+            <h2 style="font-size: 1.25rem; font-weight: 600; color: #1A1A1A; margin-bottom: 0.5rem;">
+                Content Brief
+            </h2>
+            <p style="color: #6B7280; font-size: 0.875rem;">
+                Answer these questions to guide your content creation
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
     with st.form("brief_form"):
         # Platform and content type
@@ -160,7 +199,11 @@ def _render_brief_form() -> None:
 
 def _render_preview_step() -> None:
     """Render the preview generation step."""
-    st.subheader("Content Preview")
+    st.markdown("""
+        <h2 style="font-size: 1.25rem; font-weight: 600; color: #1A1A1A; margin-bottom: 1rem;">
+            Content Preview
+        </h2>
+    """, unsafe_allow_html=True)
 
     brief = st.session_state.current_brief
     if not brief:
@@ -253,7 +296,11 @@ def _render_preview_step() -> None:
 
 def _render_content_step() -> None:
     """Render the full content generation step."""
-    st.subheader("Generated Content")
+    st.markdown("""
+        <h2 style="font-size: 1.25rem; font-weight: 600; color: #1A1A1A; margin-bottom: 1rem;">
+            Generated Content
+        </h2>
+    """, unsafe_allow_html=True)
 
     brief = st.session_state.current_brief
     preview = st.session_state.current_preview
@@ -361,7 +408,11 @@ def _render_content_step() -> None:
 
 def _render_review_step() -> None:
     """Render the review and rating step."""
-    st.subheader("Review & Rate")
+    st.markdown("""
+        <h2 style="font-size: 1.25rem; font-weight: 600; color: #1A1A1A; margin-bottom: 1rem;">
+            Review & Rate
+        </h2>
+    """, unsafe_allow_html=True)
 
     brief = st.session_state.current_brief
     preview = st.session_state.current_preview

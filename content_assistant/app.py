@@ -24,40 +24,71 @@ from content_assistant.ui.create_mode import render_create_mode  # noqa: E402
 from content_assistant.ui.review_mode import render_review_mode  # noqa: E402
 from content_assistant.ui.history_sidebar import render_history_sidebar  # noqa: E402
 from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa: E402
+from content_assistant.ui.styles import inject_custom_css, get_logo_path  # noqa: E402
 
 
 def main():
     """Main application entry point."""
-    # Title
-    st.title("🌿 TheLifeCo Content Assistant")
-    st.markdown("*Self-improving AI content assistant for wellness marketing*")
+    # Inject custom CSS
+    inject_custom_css()
 
-    # Check authentication
+    # Check authentication first
     if not check_authentication():
         show_login_form()
         return
 
-    # User info and logout in sidebar
-    user = st.session_state.get("user", {})
-    st.sidebar.markdown(f"**Logged in as:** {user.get('email', 'User')}")
-    if st.sidebar.button("Logout"):
-        logout()
-        return
+    # Sidebar content for authenticated users
+    with st.sidebar:
+        # Logo and branding
+        logo_path = get_logo_path()
+        if logo_path.exists():
+            st.image(str(logo_path), width=180)
+        st.markdown("---")
 
-    st.sidebar.divider()
+        # User info
+        user = st.session_state.get("user", {})
+        st.markdown(f"**{user.get('email', 'User')}**")
 
-    # Mode selection
-    mode = st.sidebar.radio(
-        "Mode",
-        ["CREATE", "REVIEW", "MONITOR"],
-        help="CREATE: Generate content | REVIEW: Analyze content | MONITOR: View stats",
-    )
+        if st.button("Sign Out", use_container_width=True):
+            logout()
+            return
 
-    st.sidebar.divider()
+        st.markdown("---")
 
-    # Render history sidebar (except in monitor mode)
-    if mode != "MONITOR":
-        render_history_sidebar()
+        # Mode selection with icons
+        mode = st.radio(
+            "Mode",
+            ["CREATE", "REVIEW", "MONITOR"],
+            format_func=lambda x: {
+                "CREATE": "✨ Create",
+                "REVIEW": "📝 Review",
+                "MONITOR": "📊 Monitor"
+            }.get(x, x),
+            label_visibility="collapsed",
+        )
+
+        st.markdown("---")
+
+        # Render history sidebar (except in monitor mode)
+        if mode != "MONITOR":
+            render_history_sidebar()
+
+        # Footer
+        st.markdown("---")
+        st.caption("v0.1.0 · TheLifeCo")
+
+    # Main content area
+    # Header
+    st.markdown("""
+        <div style="margin-bottom: 2rem;">
+            <h1 style="font-size: 1.75rem; font-weight: 600; margin-bottom: 0.25rem;">
+                Content Assistant
+            </h1>
+            <p style="color: #6B7280; font-size: 0.875rem;">
+                AI-powered content creation for wellness marketing
+            </p>
+        </div>
+    """, unsafe_allow_html=True)
 
     # Main content area with error handling
     try:
@@ -75,11 +106,6 @@ def main():
         # Debug info in expander
         with st.expander("Error Details"):
             st.exception(e)
-
-    # Footer
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("v0.1.0 | TheLifeCo")
-    st.sidebar.markdown("[Report Issue](https://github.com/thelifeco/content-assistant/issues)")
 
 
 if __name__ == "__main__":
