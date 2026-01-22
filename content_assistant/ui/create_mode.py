@@ -442,18 +442,21 @@ def _render_review_step() -> None:
                     api_cost_usd=content.metadata.get("cost_usd", 0),
                 )
 
-                st.success("Content saved!")
-
-                # Reset for new content
-                if st.button("Create New Content"):
-                    st.session_state.current_brief = None
-                    st.session_state.current_preview = None
-                    st.session_state.current_content = None
-                    st.session_state.generation_step = "brief"
-                    st.rerun()
+                st.session_state.content_saved = True
 
             except Exception as e:
                 st.error(f"Failed to save: {e}")
+
+    # Show success message and reset button outside the form
+    if st.session_state.get("content_saved"):
+        st.success("Content saved!")
+        if st.button("Create New Content"):
+            st.session_state.current_brief = None
+            st.session_state.current_preview = None
+            st.session_state.current_content = None
+            st.session_state.generation_step = "brief"
+            st.session_state.content_saved = False
+            st.rerun()
 
     # Copy button
     st.divider()
