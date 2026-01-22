@@ -18,6 +18,9 @@ def check_authentication() -> bool:
     Returns:
         True if user is authenticated, False otherwise
     """
+    # Inject JavaScript to handle hash fragments from Supabase
+    _handle_hash_fragments()
+
     # Check for OAuth callback
     _handle_oauth_callback()
 
@@ -28,10 +31,46 @@ def check_authentication() -> bool:
     return st.session_state.get("authenticated", False)
 
 
+def _handle_hash_fragments():
+    """Handle URL hash fragments from Supabase OAuth/reset redirects.
+
+    Supabase sends tokens in the URL hash (#access_token=...) which Streamlit
+    can't read. This injects JavaScript to convert hash params to query params.
+    """
+    # JavaScript to read hash and redirect with query params
+    js_code = """
+    <script>
+        (function() {
+            // Check if we have hash params
+            if (window.location.hash && window.location.hash.length > 1) {
+                const hash = window.location.hash.substring(1);
+                const params = new URLSearchParams(hash);
+
+                // Check if this is a recovery/reset flow
+                if (params.get('type') === 'recovery' || params.get('access_token')) {
+                    // Convert hash to query params and redirect
+                    const newUrl = window.location.pathname + '?' + hash;
+                    window.location.replace(newUrl);
+                }
+            }
+        })();
+    </script>
+    """
+    st.markdown(js_code, unsafe_allow_html=True)
+
+
 def _is_password_reset_callback() -> bool:
     """Check if this is a password reset callback."""
     query_params = st.query_params
-    return "reset" in query_params or "type" in query_params and query_params.get("type") == "recovery"
+    # Check for reset=true (our custom param) or type=recovery (Supabase param)
+    if "reset" in query_params:
+        return True
+    if query_params.get("type") == "recovery":
+        return True
+    # Also check for access_token with type=recovery pattern
+    if "access_token" in query_params and query_params.get("type") == "recovery":
+        return True
+    return False
 
 
 def get_current_user() -> Optional[dict]:
