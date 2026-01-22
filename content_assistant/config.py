@@ -98,8 +98,13 @@ def _get_secret(key: str, default: str = "") -> str:
     # Try Streamlit secrets first (for Streamlit Cloud)
     try:
         import streamlit as st
-        if hasattr(st, "secrets") and key in st.secrets:
-            return st.secrets[key]
+        if hasattr(st, "secrets"):
+            try:
+                value = st.secrets.get(key)
+                if value is not None:
+                    return value
+            except Exception:
+                pass
     except Exception:
         pass
     # Fall back to environment variable
