@@ -1,0 +1,80 @@
+"""Main Streamlit application entry point.
+
+TheLifeCo Content Marketing Assistant - Self-improving AI content generation.
+"""
+
+import streamlit as st
+
+# Page configuration - must be first Streamlit command
+st.set_page_config(
+    page_title="TheLifeCo Content Assistant",
+    page_icon="🌿",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+from content_assistant.ui.auth import check_authentication, show_login_form, logout  # noqa: E402
+from content_assistant.ui.create_mode import render_create_mode  # noqa: E402
+from content_assistant.ui.review_mode import render_review_mode  # noqa: E402
+from content_assistant.ui.history_sidebar import render_history_sidebar  # noqa: E402
+from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa: E402
+
+
+def main():
+    """Main application entry point."""
+    # Title
+    st.title("🌿 TheLifeCo Content Assistant")
+    st.markdown("*Self-improving AI content assistant for wellness marketing*")
+
+    # Check authentication
+    if not check_authentication():
+        show_login_form()
+        return
+
+    # User info and logout in sidebar
+    user = st.session_state.get("user", {})
+    st.sidebar.markdown(f"**Logged in as:** {user.get('email', 'User')}")
+    if st.sidebar.button("Logout"):
+        logout()
+        return
+
+    st.sidebar.divider()
+
+    # Mode selection
+    mode = st.sidebar.radio(
+        "Mode",
+        ["CREATE", "REVIEW", "MONITOR"],
+        help="CREATE: Generate content | REVIEW: Analyze content | MONITOR: View stats",
+    )
+
+    st.sidebar.divider()
+
+    # Render history sidebar (except in monitor mode)
+    if mode != "MONITOR":
+        render_history_sidebar()
+
+    # Main content area with error handling
+    try:
+        if mode == "CREATE":
+            render_create_mode()
+        elif mode == "REVIEW":
+            render_review_mode()
+        else:
+            render_monitoring_dashboard()
+
+    except Exception as e:
+        st.error(f"An error occurred: {str(e)}")
+        st.markdown("Please try refreshing the page or contact support if the issue persists.")
+
+        # Debug info in expander
+        with st.expander("Error Details"):
+            st.exception(e)
+
+    # Footer
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("v0.1.0 | TheLifeCo")
+    st.sidebar.markdown("[Report Issue](https://github.com/thelifeco/content-assistant/issues)")
+
+
+if __name__ == "__main__":
+    main()
