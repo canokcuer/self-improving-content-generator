@@ -93,6 +93,19 @@ class Config:
             )
 
 
+def _get_secret(key: str, default: str = "") -> str:
+    """Get secret from Streamlit secrets or environment variable."""
+    # Try Streamlit secrets first (for Streamlit Cloud)
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    # Fall back to environment variable
+    return os.getenv(key, default)
+
+
 def _load_config() -> Config:
     """Load configuration from environment variables."""
     # Load .env file if it exists
@@ -119,12 +132,12 @@ def _load_config() -> Config:
             return default
 
     return Config(
-        # Required
-        supabase_url=os.getenv("SUPABASE_URL", ""),
-        supabase_key=os.getenv("SUPABASE_KEY", ""),
-        supabase_service_key=os.getenv("SUPABASE_SERVICE_KEY", ""),
-        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
-        voyage_api_key=os.getenv("VOYAGE_API_KEY", ""),
+        # Required (check st.secrets first, then env vars)
+        supabase_url=_get_secret("SUPABASE_URL"),
+        supabase_key=_get_secret("SUPABASE_KEY"),
+        supabase_service_key=_get_secret("SUPABASE_SERVICE_KEY"),
+        anthropic_api_key=_get_secret("ANTHROPIC_API_KEY"),
+        voyage_api_key=_get_secret("VOYAGE_API_KEY"),
         # Model Configuration
         claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
         voyage_model=os.getenv("VOYAGE_MODEL", "voyage-3-lite"),
