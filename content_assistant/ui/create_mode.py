@@ -9,6 +9,7 @@ Provides a conversational chat interface for:
 
 import streamlit as st
 from typing import Optional
+import time
 
 from content_assistant.agents import (
     AgentCoordinator,
@@ -25,37 +26,43 @@ from content_assistant.db.conversations import (
 )
 
 
-# Stage display names and icons
+# Stage display names and descriptions
 STAGE_INFO = {
     AgentStage.ORCHESTRATOR: {
         "name": "Briefing",
         "icon": "clipboard",
         "description": "Understanding your content needs",
+        "thinking": "Understanding your request...",
     },
     AgentStage.WELLNESS: {
         "name": "Verification",
         "icon": "check-circle",
         "description": "Verifying facts and gathering information",
+        "thinking": "Verifying facts against knowledge base...",
     },
     AgentStage.STORYTELLING_PREVIEW: {
         "name": "Preview",
         "icon": "eye",
         "description": "Creating content preview",
+        "thinking": "Crafting engaging hooks and preview...",
     },
     AgentStage.STORYTELLING_CONTENT: {
         "name": "Content",
         "icon": "file-text",
         "description": "Generating full content",
+        "thinking": "Writing your full content...",
     },
     AgentStage.REVIEW: {
         "name": "Review",
         "icon": "star",
         "description": "Collecting your feedback",
+        "thinking": "Processing your feedback...",
     },
     AgentStage.COMPLETE: {
         "name": "Complete",
         "icon": "check",
         "description": "Content generation complete",
+        "thinking": "Finishing up...",
     },
 }
 
@@ -72,15 +79,14 @@ def _initialize_session_state() -> None:
         st.session_state.current_preview = None
     if "current_content" not in st.session_state:
         st.session_state.current_content = None
-    if "processing" not in st.session_state:
-        st.session_state.processing = False
+    if "pending_message" not in st.session_state:
+        st.session_state.pending_message = None
 
 
 def _get_or_create_coordinator() -> AgentCoordinator:
     """Get existing coordinator or create new one."""
     if st.session_state.coordinator is None:
         def on_stage_change(new_stage: AgentStage):
-            # Update UI when stage changes
             pass
 
         st.session_state.coordinator = AgentCoordinator(
@@ -115,7 +121,7 @@ def _add_message(role: str, content: str, agent: Optional[str] = None) -> None:
                 agent_name=agent,
             )
         except ConversationError:
-            pass  # Non-critical, continue without persistence
+            pass
 
 
 def _start_new_conversation() -> None:
@@ -128,6 +134,7 @@ def _start_new_conversation() -> None:
     st.session_state.chat_messages = []
     st.session_state.current_preview = None
     st.session_state.current_content = None
+    st.session_state.pending_message = None
 
     # Create new conversation in database
     user_id = _get_user_id()
@@ -188,70 +195,6 @@ def _continue_conversation(conversation_id: str) -> None:
         _start_new_conversation()
 
 
-def _process_user_message(message: str) -> None:
-    """Process a user message through the coordinator."""
-    if st.session_state.processing:
-        return
-
-    st.session_state.processing = True
-
-    # Add user message to chat
-    _add_message("user", message)
-
-    # Get coordinator
-    coordinator = _get_or_create_coordinator()
-
-    try:
-        # Process through coordinator
-        result = coordinator.process_message(message)
-
-        # Add assistant response
-        stage = AgentStage(result["stage"])
-        agent_name = stage.value.split("_")[0]  # Get base agent name
-
-        _add_message("assistant", result["response"], agent=agent_name)
-
-        # Handle stage-specific data
-        if result.get("data"):
-            data = result["data"]
-
-            # Store preview
-            if "preview" in data:
-                st.session_state.current_preview = data["preview"]
-
-            # Store content
-            if "content" in data:
-                st.session_state.current_content = data["content"]
-
-        # Save coordinator state to conversation
-        conversation_id = st.session_state.conversation_id
-        if conversation_id:
-            try:
-                conversation = get_conversation(conversation_id)
-                if conversation:
-                    conversation.agent_state = coordinator.export_state()
-                    conversation.current_agent = agent_name
-
-                    # Update other fields
-                    brief = coordinator.state.brief
-                    if brief:
-                        conversation.brief_data = brief.to_dict()
-                        conversation.funnel_stage = brief.funnel_stage
-                        conversation.platform = brief.platform
-                        conversation.content_type = brief.content_type
-                        conversation.campaign_info = brief.campaign_details or {}
-
-                    update_conversation(conversation)
-            except ConversationError:
-                pass
-
-    except Exception as e:
-        _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
-
-    finally:
-        st.session_state.processing = False
-
-
 def _render_stage_indicator() -> None:
     """Render the current stage indicator."""
     coordinator = _get_or_create_coordinator()
@@ -296,24 +239,29 @@ def _render_chat_messages() -> None:
             with st.chat_message("user"):
                 st.markdown(content)
         else:
-            # Assistant message
-            avatar = None
-            if agent == "orchestrator":
-                avatar = None
-            elif agent == "wellness":
-                avatar = None
-            elif agent == "storytelling":
-                avatar = None
-            elif agent == "review":
-                avatar = None
-
-            with st.chat_message("assistant", avatar=avatar):
+            with st.chat_message("assistant"):
                 # Show agent badge
                 if agent and agent != "system":
                     agent_display = agent.replace("_", " ").title()
                     st.caption(f"*{agent_display} Agent*")
 
                 st.markdown(content)
+
+
+def _render_thinking_indicator(stage: AgentStage, step: str = "") -> None:
+    """Render a thinking indicator in the chat."""
+    info = STAGE_INFO.get(stage, {})
+    thinking_text = info.get("thinking", "Processing...")
+    agent_name = stage.value.split("_")[0].title()
+
+    with st.chat_message("assistant"):
+        st.caption(f"*{agent_name} Agent*")
+        with st.status(thinking_text, expanded=True) as status:
+            st.write(f"Stage: **{info.get('name', 'Processing')}**")
+            if step:
+                st.write(f"Step: {step}")
+            st.write("Please wait...")
+            return status
 
 
 def _render_preview_panel() -> None:
@@ -430,6 +378,73 @@ def _render_sidebar() -> None:
                 st.caption(f"API Cost: ${cost:.4f}")
 
 
+def _process_and_display_response(message: str) -> None:
+    """Process message and display response with thinking indicators."""
+    coordinator = _get_or_create_coordinator()
+    current_stage = coordinator.get_current_stage()
+    stage_info = STAGE_INFO.get(current_stage, {})
+    agent_name = current_stage.value.split("_")[0]
+
+    # Show thinking status while processing
+    with st.chat_message("assistant"):
+        st.caption(f"*{agent_name.title()} Agent*")
+
+        with st.status(stage_info.get("thinking", "Processing..."), expanded=True) as status:
+            # Show what we're doing
+            st.write(f"**Stage:** {stage_info.get('name', 'Processing')}")
+            st.write(f"**Action:** Analyzing your message...")
+
+            try:
+                # Process through coordinator
+                result = coordinator.process_message(message)
+
+                # Update status with success
+                status.update(label="Done!", state="complete", expanded=False)
+
+            except Exception as e:
+                status.update(label="Error occurred", state="error", expanded=True)
+                st.error(f"Error: {str(e)}")
+                _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
+                return
+
+    # Now add the actual response
+    stage = AgentStage(result["stage"])
+    response_agent_name = stage.value.split("_")[0]
+
+    _add_message("assistant", result["response"], agent=response_agent_name)
+
+    # Handle stage-specific data
+    if result.get("data"):
+        data = result["data"]
+
+        if "preview" in data:
+            st.session_state.current_preview = data["preview"]
+
+        if "content" in data:
+            st.session_state.current_content = data["content"]
+
+    # Save coordinator state
+    conversation_id = st.session_state.conversation_id
+    if conversation_id:
+        try:
+            conversation = get_conversation(conversation_id)
+            if conversation:
+                conversation.agent_state = coordinator.export_state()
+                conversation.current_agent = response_agent_name
+
+                brief = coordinator.state.brief
+                if brief:
+                    conversation.brief_data = brief.to_dict()
+                    conversation.funnel_stage = brief.funnel_stage
+                    conversation.platform = brief.platform
+                    conversation.content_type = brief.content_type
+                    conversation.campaign_info = brief.campaign_details or {}
+
+                update_conversation(conversation)
+        except ConversationError:
+            pass
+
+
 def render_create_mode() -> None:
     """Render the CREATE mode chat interface."""
     _initialize_session_state()
@@ -462,6 +477,24 @@ def render_create_mode() -> None:
         # Render content panel if available
         _render_content_panel()
 
+    # Check if there's a pending message to process
+    if st.session_state.pending_message:
+        message = st.session_state.pending_message
+        st.session_state.pending_message = None
+
+        # Add user message to chat display
+        with st.chat_message("user"):
+            st.markdown(message)
+
+        # Add to history
+        _add_message("user", message)
+
+        # Process and show response with thinking
+        _process_and_display_response(message)
+
+        # Rerun to refresh the UI
+        st.rerun()
+
     # Chat input at bottom
     coordinator = _get_or_create_coordinator()
     stage = coordinator.get_current_stage()
@@ -483,10 +516,6 @@ def render_create_mode() -> None:
 
     # Chat input
     if user_input := st.chat_input(placeholder, disabled=disabled):
-        _process_user_message(user_input)
+        # Store message and trigger processing on next rerun
+        st.session_state.pending_message = user_input
         st.rerun()
-
-    # Show processing indicator
-    if st.session_state.processing:
-        with st.spinner("Thinking..."):
-            pass
