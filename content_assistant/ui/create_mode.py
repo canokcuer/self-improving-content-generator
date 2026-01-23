@@ -392,6 +392,7 @@ def _process_and_display_response(message: str, response_placeholder) -> None:
             with st.status(stage_info.get("thinking", "Processing..."), expanded=True) as status:
                 st.write(f"**Stage:** {stage_info.get('name', 'Processing')}")
                 st.write("Analyzing your message...")
+                st.write(f"*Calling Claude API...*")
 
                 try:
                     # Process through coordinator
@@ -400,7 +401,8 @@ def _process_and_display_response(message: str, response_placeholder) -> None:
 
                 except Exception as e:
                     status.update(label="Error occurred", state="error", expanded=True)
-                    st.error(f"Error: {str(e)}")
+                    st.error(f"**Error:** {str(e)}")
+                    st.code(str(type(e).__name__))  # Show error type for debugging
                     _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
                     return
 
@@ -454,6 +456,10 @@ def render_create_mode() -> None:
 
     # Main content area
     st.header("Create Content")
+
+    # Show processing banner if awaiting response
+    if st.session_state.awaiting_response:
+        st.info("Processing your message... Please wait.")
 
     # Stage indicator
     _render_stage_indicator()
