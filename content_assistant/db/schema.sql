@@ -339,3 +339,323 @@ CREATE POLICY "Authenticated users can read their assignments"
 ON experiment_assignments FOR SELECT
 TO authenticated
 USING (user_id = auth.uid());
+
+-- ============================================
+-- NEW TABLES FOR AGENTIC ARCHITECTURE
+-- ============================================
+
+-- ============================================
+-- Table 6: agent_configurations
+-- Stores configuration for each sub-agent
+-- ============================================
+CREATE TABLE IF NOT EXISTS agent_configurations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_name VARCHAR(50) NOT NULL UNIQUE,  -- 'orchestrator', 'wellness', 'storytelling', 'review'
+    display_name VARCHAR(100) NOT NULL,
+    description TEXT,
+    system_prompt TEXT NOT NULL,
+    model VARCHAR(100) DEFAULT 'claude-opus-4-5-20250114',
+    temperature DECIMAL(3, 2) DEFAULT 0.7 CHECK (temperature >= 0 AND temperature <= 1),
+    max_tokens INTEGER DEFAULT 4096,
+    tools_enabled JSONB DEFAULT '[]',  -- List of tool names this agent can use
+    knowledge_sources TEXT[] DEFAULT '{}',  -- Which knowledge folders/files this agent accesses
+    is_active BOOLEAN DEFAULT TRUE,
+    execution_order INTEGER DEFAULT 0,  -- Order in sequential execution (1=first)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Insert default agent configurations
+INSERT INTO agent_configurations (agent_name, display_name, description, system_prompt, execution_order, knowledge_sources, tools_enabled) VALUES
+('orchestrator', 'Orchestrator Agent', 'Conducts conversational briefing with users until fully aligned on content requirements',
+'You are the Orchestrator Agent for TheLifeCo Content Assistant. Your role is to have a natural conversation with users to understand their content needs. Ask clarifying questions until you are 100% aligned with what they want. Detect the marketing funnel stage (awareness, consideration, conversion, loyalty). Be helpful, not interrogative. Validate understanding before proceeding.',
+1, ARRAY['orchestrator'], '["search_knowledge", "get_similar_content", "clarify_intent", "suggest_approach"]'),
+
+('wellness', 'Wellness Verification Agent', 'Verifies content against TheLifeCo knowledge base for factual accuracy',
+'You are the Wellness Verification Agent. Your role is to verify all facts, claims, program details, and center information against the TheLifeCo knowledge base. Flag any inaccuracies or unverified claims. Provide supporting evidence for verified facts.',
+2, ARRAY['wellness', 'wellness/centers'], '["search_wellness_knowledge", "verify_program_info", "verify_claim", "get_center_info"]'),
+
+('storytelling', 'Storytelling Agent', 'Creates engaging content using hooks, emotional journeys, and platform optimization',
+'You are the Storytelling Agent for TheLifeCo. Your role is to create compelling, engaging content that captures attention and drives action. Use proven hook patterns, create open loops for engagement, and optimize for the target platform. Match content style to the funnel stage.',
+3, ARRAY['storytelling', 'brand'], '["get_hook_patterns", "get_engagement_tactics", "get_platform_rules", "get_few_shot_examples", "get_cta_templates"]'),
+
+('review', 'Review & Learning Agent', 'Collects feedback, extracts learnings, and manages admin review queue',
+'You are the Review & Learning Agent. Your role is to collect user feedback, extract actionable learnings, and queue insights for admin approval. Identify patterns in feedback that can improve future generations.',
+4, ARRAY[]::TEXT[], '["store_feedback", "extract_learning", "queue_for_review"]')
+
+ON CONFLICT (agent_name) DO NOTHING;
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_agent_configurations_updated_at ON agent_configurations;
+CREATE TRIGGER update_agent_configurations_updated_at
+    BEFORE UPDATE ON agent_configurations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Table 7: agent_learnings
+-- Stores learnings extracted from feedback for continuous improvement
+-- ============================================
+CREATE TABLE IF NOT EXISTS agent_learnings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    agent_name VARCHAR(50) NOT NULL,  -- Which agent learned this
+    learning_type VARCHAR(50) NOT NULL CHECK (learning_type IN ('pattern', 'preference', 'correction', 'feedback', 'style')),
+    learning_content TEXT NOT NULL,  -- What was learned
+    learning_summary VARCHAR(500),  -- Short summary for display
+    source_generation_id UUID REFERENCES content_generations(id) ON DELETE SET NULL,
+    source_feedback_id UUID,  -- References feedback_reviews.id
+    confidence_score DECIMAL(3, 2) DEFAULT 0.5 CHECK (confidence_score >= 0 AND confidence_score <= 1),
+    times_applied INTEGER DEFAULT 0,  -- How often this learning was used
+    success_rate DECIMAL(3, 2) CHECK (success_rate >= 0 AND success_rate <= 1),  -- Success rate when applied
+    is_approved BOOLEAN DEFAULT FALSE,  -- Admin-approved learning
+    approved_by UUID,  -- Admin user who approved
+    approved_at TIMESTAMP WITH TIME ZONE,
+    rejection_reason TEXT,  -- If rejected, why
+    tags TEXT[] DEFAULT '{}',  -- Categorization tags
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for agent_learnings
+CREATE INDEX IF NOT EXISTS agent_learnings_agent_name_idx ON agent_learnings(agent_name);
+CREATE INDEX IF NOT EXISTS agent_learnings_learning_type_idx ON agent_learnings(learning_type);
+CREATE INDEX IF NOT EXISTS agent_learnings_is_approved_idx ON agent_learnings(is_approved);
+CREATE INDEX IF NOT EXISTS agent_learnings_confidence_idx ON agent_learnings(confidence_score);
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_agent_learnings_updated_at ON agent_learnings;
+CREATE TRIGGER update_agent_learnings_updated_at
+    BEFORE UPDATE ON agent_learnings
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Table 8: feedback_reviews
+-- Detailed feedback storage with admin review workflow
+-- ============================================
+CREATE TABLE IF NOT EXISTS feedback_reviews (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    generation_id UUID NOT NULL REFERENCES content_generations(id) ON DELETE CASCADE,
+    user_id UUID,
+
+    -- User feedback
+    rating INTEGER CHECK (rating >= 1 AND rating <= 5),
+    feedback_text TEXT,  -- Open-ended feedback field
+    what_worked TEXT[] DEFAULT '{}',
+    what_needs_work TEXT[] DEFAULT '{}',
+
+    -- Structured feedback categories
+    hook_feedback VARCHAR(20) CHECK (hook_feedback IN ('excellent', 'good', 'needs_work', 'poor')),
+    facts_feedback VARCHAR(20) CHECK (facts_feedback IN ('accurate', 'mostly_accurate', 'some_issues', 'inaccurate')),
+    tone_feedback VARCHAR(20) CHECK (tone_feedback IN ('perfect', 'good', 'off_brand', 'wrong')),
+    cta_feedback VARCHAR(20) CHECK (cta_feedback IN ('compelling', 'good', 'weak', 'missing')),
+
+    -- Admin review workflow
+    admin_review_status VARCHAR(20) DEFAULT 'pending' CHECK (admin_review_status IN ('pending', 'in_review', 'reviewed', 'approved', 'rejected')),
+    admin_reviewer_id UUID,
+    admin_notes TEXT,
+    admin_reviewed_at TIMESTAMP WITH TIME ZONE,
+
+    -- Learning extraction
+    learnings_extracted BOOLEAN DEFAULT FALSE,
+    extracted_learning_ids UUID[] DEFAULT '{}',
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for feedback_reviews
+CREATE INDEX IF NOT EXISTS feedback_reviews_generation_idx ON feedback_reviews(generation_id);
+CREATE INDEX IF NOT EXISTS feedback_reviews_user_idx ON feedback_reviews(user_id);
+CREATE INDEX IF NOT EXISTS feedback_reviews_admin_status_idx ON feedback_reviews(admin_review_status);
+CREATE INDEX IF NOT EXISTS feedback_reviews_rating_idx ON feedback_reviews(rating);
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_feedback_reviews_updated_at ON feedback_reviews;
+CREATE TRIGGER update_feedback_reviews_updated_at
+    BEFORE UPDATE ON feedback_reviews
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Table 9: conversations
+-- Stores persistent conversations for "forever conversation" feature
+-- ============================================
+CREATE TABLE IF NOT EXISTS conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL,
+    title VARCHAR(255),  -- Auto-generated or user-set
+    status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'archived')),
+
+    -- Conversation content
+    messages JSONB[] DEFAULT '{}',  -- Array of message objects
+
+    -- Agent state
+    current_agent VARCHAR(50),  -- Which agent is currently active
+    agent_state JSONB DEFAULT '{}',  -- Current state of agent execution
+    brief_data JSONB,  -- Extracted brief from conversation
+
+    -- Metadata
+    funnel_stage VARCHAR(20) CHECK (funnel_stage IN ('awareness', 'consideration', 'conversion', 'loyalty')),
+    platform VARCHAR(50),
+    content_type VARCHAR(50),
+    generation_ids UUID[] DEFAULT '{}',  -- Linked content generations
+
+    -- Campaign info (collected dynamically)
+    campaign_info JSONB DEFAULT '{}',  -- {has_campaign: bool, price: string, duration: string, center: string}
+
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes for conversations
+CREATE INDEX IF NOT EXISTS conversations_user_idx ON conversations(user_id);
+CREATE INDEX IF NOT EXISTS conversations_status_idx ON conversations(status);
+CREATE INDEX IF NOT EXISTS conversations_created_at_idx ON conversations(created_at DESC);
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_conversations_updated_at ON conversations;
+CREATE TRIGGER update_conversations_updated_at
+    BEFORE UPDATE ON conversations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Table 10: user_roles
+-- Role-based access control for admin features
+-- ============================================
+CREATE TABLE IF NOT EXISTS user_roles (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID NOT NULL UNIQUE,
+    role VARCHAR(20) DEFAULT 'user' CHECK (role IN ('user', 'editor', 'admin', 'super_admin')),
+    permissions JSONB DEFAULT '{}',  -- Additional granular permissions
+    granted_by UUID,
+    granted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Trigger for updated_at
+DROP TRIGGER IF EXISTS update_user_roles_updated_at ON user_roles;
+CREATE TRIGGER update_user_roles_updated_at
+    BEFORE UPDATE ON user_roles
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- Function: Get approved learnings for an agent
+-- ============================================
+CREATE OR REPLACE FUNCTION get_agent_learnings(
+    p_agent_name VARCHAR(50),
+    p_learning_type VARCHAR(50) DEFAULT NULL,
+    p_limit INT DEFAULT 10
+)
+RETURNS TABLE (
+    id UUID,
+    learning_type VARCHAR(50),
+    learning_content TEXT,
+    learning_summary VARCHAR(500),
+    confidence_score DECIMAL(3, 2),
+    times_applied INTEGER,
+    success_rate DECIMAL(3, 2)
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT
+        al.id,
+        al.learning_type,
+        al.learning_content,
+        al.learning_summary,
+        al.confidence_score,
+        al.times_applied,
+        al.success_rate
+    FROM agent_learnings al
+    WHERE al.agent_name = p_agent_name
+      AND al.is_approved = TRUE
+      AND (p_learning_type IS NULL OR al.learning_type = p_learning_type)
+    ORDER BY al.confidence_score DESC, al.success_rate DESC NULLS LAST
+    LIMIT p_limit;
+END;
+$$;
+
+-- ============================================
+-- Function: Check if user is admin
+-- ============================================
+CREATE OR REPLACE FUNCTION is_user_admin(p_user_id UUID)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    user_role VARCHAR(20);
+BEGIN
+    SELECT role INTO user_role
+    FROM user_roles
+    WHERE user_id = p_user_id;
+
+    RETURN user_role IN ('admin', 'super_admin');
+END;
+$$;
+
+-- ============================================
+-- RLS Policies for new tables
+-- ============================================
+
+-- Enable RLS
+ALTER TABLE agent_configurations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_learnings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE feedback_reviews ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE user_roles ENABLE ROW LEVEL SECURITY;
+
+-- Service role full access
+CREATE POLICY "Service role has full access to agent_configurations"
+ON agent_configurations FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to agent_learnings"
+ON agent_learnings FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to feedback_reviews"
+ON feedback_reviews FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to conversations"
+ON conversations FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+CREATE POLICY "Service role has full access to user_roles"
+ON user_roles FOR ALL TO service_role USING (true) WITH CHECK (true);
+
+-- Authenticated user policies for agent_configurations (read-only)
+CREATE POLICY "Authenticated users can read agent_configurations"
+ON agent_configurations FOR SELECT TO authenticated USING (true);
+
+-- Authenticated user policies for agent_learnings (read approved only)
+CREATE POLICY "Authenticated users can read approved learnings"
+ON agent_learnings FOR SELECT TO authenticated USING (is_approved = TRUE);
+
+-- Authenticated user policies for feedback_reviews
+CREATE POLICY "Users can read their own feedback"
+ON feedback_reviews FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "Users can insert feedback"
+ON feedback_reviews FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can update their own feedback"
+ON feedback_reviews FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+-- Authenticated user policies for conversations
+CREATE POLICY "Users can read their own conversations"
+ON conversations FOR SELECT TO authenticated USING (user_id = auth.uid());
+
+CREATE POLICY "Users can insert their own conversations"
+ON conversations FOR INSERT TO authenticated WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can update their own conversations"
+ON conversations FOR UPDATE TO authenticated USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
+
+CREATE POLICY "Users can delete their own conversations"
+ON conversations FOR DELETE TO authenticated USING (user_id = auth.uid());
+
+-- User roles - users can only see their own role
+CREATE POLICY "Users can read their own role"
+ON user_roles FOR SELECT TO authenticated USING (user_id = auth.uid());

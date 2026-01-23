@@ -32,7 +32,7 @@ class Config:
     voyage_api_key: str
 
     # Model Configuration
-    claude_model: str = "claude-sonnet-4-20250514"
+    claude_model: str = "claude-opus-4-5-20250114"  # Opus 4.5 for high-quality generation
     voyage_model: str = "voyage-3-lite"
     embedding_dimension: int = 1024
 
@@ -144,7 +144,7 @@ def _load_config() -> Config:
         anthropic_api_key=_get_secret("ANTHROPIC_API_KEY"),
         voyage_api_key=_get_secret("VOYAGE_API_KEY"),
         # Model Configuration
-        claude_model=os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
+        claude_model=os.getenv("CLAUDE_MODEL", "claude-opus-4-5-20250114"),
         voyage_model=os.getenv("VOYAGE_MODEL", "voyage-3-lite"),
         embedding_dimension=get_int("EMBEDDING_DIMENSION", 1024),
         # Chunking

@@ -1,0 +1,488 @@
+"""Conversation persistence for TheLifeCo Content Assistant.
+
+Handles storing and retrieving conversations for the "forever conversation" feature,
+allowing users to continue content generation across sessions.
+"""
+
+import json
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional
+from uuid import uuid4
+
+from content_assistant.db.supabase_client import get_admin_client
+
+
+class ConversationError(Exception):
+    """Raised when conversation operations fail."""
+    pass
+
+
+@dataclass
+class ConversationMessage:
+    """A message in a conversation."""
+    role: str  # 'user', 'orchestrator', 'wellness', 'storytelling', 'review', 'system'
+    content: str
+    timestamp: datetime = field(default_factory=datetime.now)
+    agent_name: Optional[str] = None
+    metadata: dict = field(default_factory=dict)
+
+    def to_dict(self) -> dict:
+        return {
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat() if isinstance(self.timestamp, datetime) else self.timestamp,
+            "agent_name": self.agent_name,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConversationMessage":
+        timestamp = data.get("timestamp")
+        if isinstance(timestamp, str):
+            timestamp = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return cls(
+            role=data.get("role", "user"),
+            content=data.get("content", ""),
+            timestamp=timestamp or datetime.now(),
+            agent_name=data.get("agent_name"),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class Conversation:
+    """A conversation session."""
+    id: str
+    user_id: str
+    title: Optional[str] = None
+    status: str = "active"  # active, completed, archived
+    messages: list = field(default_factory=list)
+    current_agent: Optional[str] = None
+    agent_state: dict = field(default_factory=dict)
+    brief_data: Optional[dict] = None
+    funnel_stage: Optional[str] = None
+    platform: Optional[str] = None
+    content_type: Optional[str] = None
+    generation_ids: list = field(default_factory=list)
+    campaign_info: dict = field(default_factory=dict)
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "user_id": self.user_id,
+            "title": self.title,
+            "status": self.status,
+            "messages": [m.to_dict() if isinstance(m, ConversationMessage) else m for m in self.messages],
+            "current_agent": self.current_agent,
+            "agent_state": self.agent_state,
+            "brief_data": self.brief_data,
+            "funnel_stage": self.funnel_stage,
+            "platform": self.platform,
+            "content_type": self.content_type,
+            "generation_ids": self.generation_ids,
+            "campaign_info": self.campaign_info,
+            "created_at": self.created_at.isoformat() if isinstance(self.created_at, datetime) else self.created_at,
+            "updated_at": self.updated_at.isoformat() if isinstance(self.updated_at, datetime) else self.updated_at,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Conversation":
+        messages = []
+        for m in data.get("messages", []):
+            if isinstance(m, dict):
+                messages.append(ConversationMessage.from_dict(m))
+            else:
+                messages.append(m)
+
+        created_at = data.get("created_at")
+        if isinstance(created_at, str):
+            created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+
+        updated_at = data.get("updated_at")
+        if isinstance(updated_at, str):
+            updated_at = datetime.fromisoformat(updated_at.replace("Z", "+00:00"))
+
+        return cls(
+            id=data.get("id", str(uuid4())),
+            user_id=data.get("user_id", ""),
+            title=data.get("title"),
+            status=data.get("status", "active"),
+            messages=messages,
+            current_agent=data.get("current_agent"),
+            agent_state=data.get("agent_state", {}),
+            brief_data=data.get("brief_data"),
+            funnel_stage=data.get("funnel_stage"),
+            platform=data.get("platform"),
+            content_type=data.get("content_type"),
+            generation_ids=data.get("generation_ids", []),
+            campaign_info=data.get("campaign_info", {}),
+            created_at=created_at or datetime.now(),
+            updated_at=updated_at or datetime.now(),
+        )
+
+    def add_message(self, role: str, content: str, agent_name: Optional[str] = None, **kwargs) -> None:
+        """Add a message to the conversation."""
+        self.messages.append(ConversationMessage(
+            role=role,
+            content=content,
+            agent_name=agent_name,
+            metadata=kwargs
+        ))
+        self.updated_at = datetime.now()
+
+    def get_message_count(self) -> int:
+        """Get total message count."""
+        return len(self.messages)
+
+    def generate_title(self) -> str:
+        """Generate a title from the first user message."""
+        for msg in self.messages:
+            if isinstance(msg, ConversationMessage) and msg.role == "user":
+                content = msg.content[:50]
+                if len(msg.content) > 50:
+                    content += "..."
+                return content
+            elif isinstance(msg, dict) and msg.get("role") == "user":
+                content = msg.get("content", "")[:50]
+                if len(msg.get("content", "")) > 50:
+                    content += "..."
+                return content
+        return "New Conversation"
+
+
+def create_conversation(user_id: str, title: Optional[str] = None) -> Conversation:
+    """Create a new conversation.
+
+    Args:
+        user_id: User's ID
+        title: Optional title (auto-generated if not provided)
+
+    Returns:
+        Created Conversation object
+
+    Raises:
+        ConversationError: If creation fails
+    """
+    conversation = Conversation(
+        id=str(uuid4()),
+        user_id=user_id,
+        title=title,
+        status="active"
+    )
+
+    try:
+        client = get_admin_client()
+        result = client.table("conversations").insert({
+            "id": conversation.id,
+            "user_id": conversation.user_id,
+            "title": conversation.title,
+            "status": conversation.status,
+            "messages": [],
+            "current_agent": None,
+            "agent_state": {},
+            "brief_data": None,
+            "funnel_stage": None,
+            "platform": None,
+            "content_type": None,
+            "generation_ids": [],
+            "campaign_info": {},
+        }).execute()
+
+        if result.data:
+            return Conversation.from_dict(result.data[0])
+        return conversation
+
+    except Exception as e:
+        raise ConversationError(f"Failed to create conversation: {e}") from e
+
+
+def get_conversation(conversation_id: str) -> Optional[Conversation]:
+    """Get a conversation by ID.
+
+    Args:
+        conversation_id: Conversation ID
+
+    Returns:
+        Conversation object or None if not found
+    """
+    try:
+        client = get_admin_client()
+        result = client.table("conversations")\
+            .select("*")\
+            .eq("id", conversation_id)\
+            .execute()
+
+        if result.data:
+            return Conversation.from_dict(result.data[0])
+        return None
+
+    except Exception as e:
+        raise ConversationError(f"Failed to get conversation: {e}") from e
+
+
+def update_conversation(conversation: Conversation) -> Conversation:
+    """Update a conversation.
+
+    Args:
+        conversation: Conversation object with updates
+
+    Returns:
+        Updated Conversation object
+    """
+    try:
+        client = get_admin_client()
+        conversation.updated_at = datetime.now()
+
+        data = conversation.to_dict()
+        # Convert messages to JSON-serializable format
+        data["messages"] = [m.to_dict() if isinstance(m, ConversationMessage) else m for m in conversation.messages]
+
+        result = client.table("conversations")\
+            .update(data)\
+            .eq("id", conversation.id)\
+            .execute()
+
+        if result.data:
+            return Conversation.from_dict(result.data[0])
+        return conversation
+
+    except Exception as e:
+        raise ConversationError(f"Failed to update conversation: {e}") from e
+
+
+def add_message_to_conversation(
+    conversation_id: str,
+    role: str,
+    content: str,
+    agent_name: Optional[str] = None,
+    **metadata
+) -> Conversation:
+    """Add a message to a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+        role: Message role
+        content: Message content
+        agent_name: Optional agent name
+        **metadata: Additional metadata
+
+    Returns:
+        Updated Conversation object
+    """
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    conversation.add_message(role, content, agent_name, **metadata)
+    return update_conversation(conversation)
+
+
+def get_user_conversations(
+    user_id: str,
+    status: Optional[str] = None,
+    limit: int = 20,
+    offset: int = 0
+) -> list[Conversation]:
+    """Get conversations for a user.
+
+    Args:
+        user_id: User's ID
+        status: Filter by status (optional)
+        limit: Max conversations to return
+        offset: Pagination offset
+
+    Returns:
+        List of Conversation objects
+    """
+    try:
+        client = get_admin_client()
+        query = client.table("conversations")\
+            .select("*")\
+            .eq("user_id", user_id)\
+            .order("updated_at", desc=True)\
+            .range(offset, offset + limit - 1)
+
+        if status:
+            query = query.eq("status", status)
+
+        result = query.execute()
+
+        return [Conversation.from_dict(row) for row in result.data]
+
+    except Exception as e:
+        raise ConversationError(f"Failed to get user conversations: {e}") from e
+
+
+def search_conversations(
+    user_id: str,
+    query: str,
+    limit: int = 10
+) -> list[Conversation]:
+    """Search conversations by content.
+
+    Args:
+        user_id: User's ID
+        query: Search query
+        limit: Max results
+
+    Returns:
+        List of matching Conversation objects
+    """
+    try:
+        # Get all user conversations and filter by message content
+        # In production, this would use full-text search
+        conversations = get_user_conversations(user_id, limit=100)
+
+        matching = []
+        query_lower = query.lower()
+
+        for conv in conversations:
+            # Search in title
+            if conv.title and query_lower in conv.title.lower():
+                matching.append(conv)
+                continue
+
+            # Search in messages
+            for msg in conv.messages:
+                content = msg.content if isinstance(msg, ConversationMessage) else msg.get("content", "")
+                if query_lower in content.lower():
+                    matching.append(conv)
+                    break
+
+            if len(matching) >= limit:
+                break
+
+        return matching[:limit]
+
+    except Exception as e:
+        raise ConversationError(f"Failed to search conversations: {e}") from e
+
+
+def update_conversation_state(
+    conversation_id: str,
+    current_agent: Optional[str] = None,
+    agent_state: Optional[dict] = None,
+    brief_data: Optional[dict] = None,
+    funnel_stage: Optional[str] = None,
+    platform: Optional[str] = None,
+    content_type: Optional[str] = None,
+    campaign_info: Optional[dict] = None
+) -> Conversation:
+    """Update conversation state fields.
+
+    Args:
+        conversation_id: Conversation ID
+        current_agent: Current agent name
+        agent_state: Agent state dict
+        brief_data: Brief data dict
+        funnel_stage: Funnel stage
+        platform: Target platform
+        content_type: Content type
+        campaign_info: Campaign information
+
+    Returns:
+        Updated Conversation object
+    """
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    if current_agent is not None:
+        conversation.current_agent = current_agent
+    if agent_state is not None:
+        conversation.agent_state = agent_state
+    if brief_data is not None:
+        conversation.brief_data = brief_data
+    if funnel_stage is not None:
+        conversation.funnel_stage = funnel_stage
+    if platform is not None:
+        conversation.platform = platform
+    if content_type is not None:
+        conversation.content_type = content_type
+    if campaign_info is not None:
+        conversation.campaign_info = campaign_info
+
+    return update_conversation(conversation)
+
+
+def add_generation_to_conversation(conversation_id: str, generation_id: str) -> Conversation:
+    """Link a content generation to a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+        generation_id: Generation ID
+
+    Returns:
+        Updated Conversation object
+    """
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    if generation_id not in conversation.generation_ids:
+        conversation.generation_ids.append(generation_id)
+
+    return update_conversation(conversation)
+
+
+def complete_conversation(conversation_id: str) -> Conversation:
+    """Mark a conversation as completed.
+
+    Args:
+        conversation_id: Conversation ID
+
+    Returns:
+        Updated Conversation object
+    """
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    conversation.status = "completed"
+
+    # Auto-generate title if not set
+    if not conversation.title:
+        conversation.title = conversation.generate_title()
+
+    return update_conversation(conversation)
+
+
+def archive_conversation(conversation_id: str) -> Conversation:
+    """Archive a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+
+    Returns:
+        Updated Conversation object
+    """
+    conversation = get_conversation(conversation_id)
+    if not conversation:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    conversation.status = "archived"
+    return update_conversation(conversation)
+
+
+def delete_conversation(conversation_id: str) -> bool:
+    """Delete a conversation.
+
+    Args:
+        conversation_id: Conversation ID
+
+    Returns:
+        True if deleted successfully
+    """
+    try:
+        client = get_admin_client()
+        client.table("conversations")\
+            .delete()\
+            .eq("id", conversation_id)\
+            .execute()
+        return True
+
+    except Exception as e:
+        raise ConversationError(f"Failed to delete conversation: {e}") from e

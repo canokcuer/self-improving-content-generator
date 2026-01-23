@@ -1,465 +1,492 @@
 """CREATE mode UI for content generation.
 
-Provides the interface for:
-- 13-question Socratic brief form
+Provides a conversational chat interface for:
+- Multi-agent content briefing
 - Preview generation and approval
 - Full content generation
+- Feedback collection
 """
 
 import streamlit as st
+from typing import Optional
 
-from content_assistant.generation.brief import (
-    ContentBrief,
-    Platform,
-    ContentType,
-    get_questions,
-    validate_brief,
+from content_assistant.agents import (
+    AgentCoordinator,
+    AgentStage,
+    CoordinatorState,
 )
-from content_assistant.generation.preview import generate_preview
-from content_assistant.generation.generator import generate_content
-from content_assistant.rag.knowledge_base import search_knowledge
-from content_assistant.review.signals import store_generation_signals
-from content_assistant.review.few_shot import get_few_shot_examples
+from content_assistant.db.conversations import (
+    create_conversation,
+    get_conversation,
+    update_conversation,
+    get_user_conversations,
+    add_message_to_conversation,
+    ConversationError,
+)
 
 
-def render_create_mode() -> None:
-    """Render the CREATE mode interface."""
-    st.header("Create Content")
+# Stage display names and icons
+STAGE_INFO = {
+    AgentStage.ORCHESTRATOR: {
+        "name": "Briefing",
+        "icon": "clipboard",
+        "description": "Understanding your content needs",
+    },
+    AgentStage.WELLNESS: {
+        "name": "Verification",
+        "icon": "check-circle",
+        "description": "Verifying facts and gathering information",
+    },
+    AgentStage.STORYTELLING_PREVIEW: {
+        "name": "Preview",
+        "icon": "eye",
+        "description": "Creating content preview",
+    },
+    AgentStage.STORYTELLING_CONTENT: {
+        "name": "Content",
+        "icon": "file-text",
+        "description": "Generating full content",
+    },
+    AgentStage.REVIEW: {
+        "name": "Review",
+        "icon": "star",
+        "description": "Collecting your feedback",
+    },
+    AgentStage.COMPLETE: {
+        "name": "Complete",
+        "icon": "check",
+        "description": "Content generation complete",
+    },
+}
 
-    # Initialize session state
-    if "current_brief" not in st.session_state:
-        st.session_state.current_brief = None
+
+def _initialize_session_state() -> None:
+    """Initialize all session state variables."""
+    if "coordinator" not in st.session_state:
+        st.session_state.coordinator = None
+    if "chat_messages" not in st.session_state:
+        st.session_state.chat_messages = []
+    if "conversation_id" not in st.session_state:
+        st.session_state.conversation_id = None
     if "current_preview" not in st.session_state:
         st.session_state.current_preview = None
     if "current_content" not in st.session_state:
         st.session_state.current_content = None
-    if "generation_step" not in st.session_state:
-        st.session_state.generation_step = "brief"
+    if "processing" not in st.session_state:
+        st.session_state.processing = False
 
-    # Step indicator
-    steps = ["brief", "preview", "content", "review"]
-    current_step = st.session_state.generation_step
-    step_index = steps.index(current_step) if current_step in steps else 0
 
-    cols = st.columns(4)
-    for i, step in enumerate(steps):
+def _get_or_create_coordinator() -> AgentCoordinator:
+    """Get existing coordinator or create new one."""
+    if st.session_state.coordinator is None:
+        def on_stage_change(new_stage: AgentStage):
+            # Update UI when stage changes
+            pass
+
+        st.session_state.coordinator = AgentCoordinator(
+            on_stage_change=on_stage_change
+        )
+    return st.session_state.coordinator
+
+
+def _get_user_id() -> Optional[str]:
+    """Get current user ID from session."""
+    user = st.session_state.get("user", {})
+    return user.get("id") if user else None
+
+
+def _add_message(role: str, content: str, agent: Optional[str] = None) -> None:
+    """Add a message to the chat history."""
+    message = {
+        "role": role,
+        "content": content,
+        "agent": agent,
+    }
+    st.session_state.chat_messages.append(message)
+
+    # Also save to database if conversation exists
+    conversation_id = st.session_state.conversation_id
+    if conversation_id:
+        try:
+            add_message_to_conversation(
+                conversation_id=conversation_id,
+                role=role,
+                content=content,
+                agent_name=agent,
+            )
+        except ConversationError:
+            pass  # Non-critical, continue without persistence
+
+
+def _start_new_conversation() -> None:
+    """Start a new conversation."""
+    # Reset coordinator
+    coordinator = _get_or_create_coordinator()
+    coordinator.reset()
+
+    # Clear chat history
+    st.session_state.chat_messages = []
+    st.session_state.current_preview = None
+    st.session_state.current_content = None
+
+    # Create new conversation in database
+    user_id = _get_user_id()
+    if user_id:
+        try:
+            conversation = create_conversation(user_id)
+            st.session_state.conversation_id = conversation.id
+            coordinator.set_user_context(user_id, conversation.id)
+        except ConversationError:
+            st.session_state.conversation_id = None
+
+    # Add welcome message
+    welcome = """Hello! I'm here to help you create engaging content for TheLifeCo.
+
+Tell me about the content you'd like to create. For example:
+- "I want to create an Instagram post about our detox program"
+- "Help me write content promoting our wellness retreat in Bodrum"
+- "Create a newsletter about mindfulness and stress relief"
+
+What would you like to create today?"""
+
+    _add_message("assistant", welcome, agent="orchestrator")
+
+
+def _continue_conversation(conversation_id: str) -> None:
+    """Continue an existing conversation."""
+    try:
+        conversation = get_conversation(conversation_id)
+        if conversation:
+            st.session_state.conversation_id = conversation_id
+
+            # Restore chat messages
+            st.session_state.chat_messages = []
+            for msg in conversation.messages:
+                if hasattr(msg, 'role'):
+                    st.session_state.chat_messages.append({
+                        "role": msg.role,
+                        "content": msg.content,
+                        "agent": msg.agent_name,
+                    })
+                elif isinstance(msg, dict):
+                    st.session_state.chat_messages.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                        "agent": msg.get("agent_name"),
+                    })
+
+            # Restore coordinator state
+            coordinator = _get_or_create_coordinator()
+            if conversation.agent_state:
+                coordinator.import_state(conversation.agent_state)
+
+            user_id = _get_user_id()
+            if user_id:
+                coordinator.set_user_context(user_id, conversation_id)
+
+    except ConversationError:
+        _start_new_conversation()
+
+
+def _process_user_message(message: str) -> None:
+    """Process a user message through the coordinator."""
+    if st.session_state.processing:
+        return
+
+    st.session_state.processing = True
+
+    # Add user message to chat
+    _add_message("user", message)
+
+    # Get coordinator
+    coordinator = _get_or_create_coordinator()
+
+    try:
+        # Process through coordinator
+        result = coordinator.process_message(message)
+
+        # Add assistant response
+        stage = AgentStage(result["stage"])
+        agent_name = stage.value.split("_")[0]  # Get base agent name
+
+        _add_message("assistant", result["response"], agent=agent_name)
+
+        # Handle stage-specific data
+        if result.get("data"):
+            data = result["data"]
+
+            # Store preview
+            if "preview" in data:
+                st.session_state.current_preview = data["preview"]
+
+            # Store content
+            if "content" in data:
+                st.session_state.current_content = data["content"]
+
+        # Save coordinator state to conversation
+        conversation_id = st.session_state.conversation_id
+        if conversation_id:
+            try:
+                conversation = get_conversation(conversation_id)
+                if conversation:
+                    conversation.agent_state = coordinator.export_state()
+                    conversation.current_agent = agent_name
+
+                    # Update other fields
+                    brief = coordinator.state.brief
+                    if brief:
+                        conversation.brief_data = brief.to_dict()
+                        conversation.funnel_stage = brief.funnel_stage
+                        conversation.platform = brief.platform
+                        conversation.content_type = brief.content_type
+                        conversation.campaign_info = brief.campaign_details or {}
+
+                    update_conversation(conversation)
+            except ConversationError:
+                pass
+
+    except Exception as e:
+        _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
+
+    finally:
+        st.session_state.processing = False
+
+
+def _render_stage_indicator() -> None:
+    """Render the current stage indicator."""
+    coordinator = _get_or_create_coordinator()
+    current_stage = coordinator.get_current_stage()
+
+    stages = [
+        AgentStage.ORCHESTRATOR,
+        AgentStage.WELLNESS,
+        AgentStage.STORYTELLING_PREVIEW,
+        AgentStage.STORYTELLING_CONTENT,
+        AgentStage.REVIEW,
+    ]
+
+    # Create columns for stage indicators
+    cols = st.columns(len(stages))
+
+    for i, stage in enumerate(stages):
+        info = STAGE_INFO.get(stage, {})
+        name = info.get("name", stage.value)
+
         with cols[i]:
-            if i < step_index:
-                st.success(f"**{i+1}. {step.title()}**")
-            elif i == step_index:
-                st.info(f"**{i+1}. {step.title()}**")
+            if stage == current_stage:
+                st.markdown(f"**:blue[{i+1}. {name}]**")
+            elif stages.index(current_stage) > i:
+                st.markdown(f":green[{i+1}. {name}]")
             else:
-                st.markdown(f"{i+1}. {step.title()}")
+                st.markdown(f":gray[{i+1}. {name}]")
 
-    st.divider()
-
-    # Render current step
-    if current_step == "brief":
-        _render_brief_form()
-    elif current_step == "preview":
-        _render_preview_step()
-    elif current_step == "content":
-        _render_content_step()
-    elif current_step == "review":
-        _render_review_step()
+    # Show current stage description
+    current_info = STAGE_INFO.get(current_stage, {})
+    st.caption(f"*{current_info.get('description', 'Processing...')}*")
 
 
-def _render_brief_form() -> None:
-    """Render the 13-question brief form."""
-    st.subheader("Content Brief")
-    st.markdown("Answer these questions to guide your content creation.")
+def _render_chat_messages() -> None:
+    """Render all chat messages."""
+    for msg in st.session_state.chat_messages:
+        role = msg["role"]
+        content = msg["content"]
+        agent = msg.get("agent")
 
-    with st.form("brief_form"):
-        # Platform and content type
-        col1, col2 = st.columns(2)
+        if role == "user":
+            with st.chat_message("user"):
+                st.markdown(content)
+        else:
+            # Assistant message
+            avatar = None
+            if agent == "orchestrator":
+                avatar = None
+            elif agent == "wellness":
+                avatar = None
+            elif agent == "storytelling":
+                avatar = None
+            elif agent == "review":
+                avatar = None
+
+            with st.chat_message("assistant", avatar=avatar):
+                # Show agent badge
+                if agent and agent != "system":
+                    agent_display = agent.replace("_", " ").title()
+                    st.caption(f"*{agent_display} Agent*")
+
+                st.markdown(content)
+
+
+def _render_preview_panel() -> None:
+    """Render preview panel if available."""
+    preview = st.session_state.current_preview
+    if not preview:
+        return
+
+    with st.expander("Content Preview", expanded=True):
+        st.markdown("### Hook")
+        st.info(preview.get("hook", ""))
+
+        if preview.get("hook_type"):
+            st.caption(f"*Hook type: {preview['hook_type'].replace('_', ' ').title()}*")
+
+        if preview.get("open_loops"):
+            st.markdown("### Open Loops")
+            for loop in preview["open_loops"]:
+                st.markdown(f"- {loop}")
+
+        if preview.get("promise"):
+            st.markdown("### Promise")
+            st.markdown(preview["promise"])
+
+
+def _render_content_panel() -> None:
+    """Render content panel if available."""
+    content = st.session_state.current_content
+    if not content:
+        return
+
+    with st.expander("Generated Content", expanded=True):
+        # Content text
+        content_text = content.get("content", "")
+        st.text_area(
+            "Content",
+            value=content_text,
+            height=300,
+            label_visibility="collapsed",
+        )
+
+        # Stats
+        col1, col2, col3 = st.columns(3)
         with col1:
-            platform = st.selectbox(
-                "Platform",
-                options=[p.value for p in Platform],
-                format_func=lambda x: x.title(),
-            )
+            st.metric("Words", content.get("word_count", len(content_text.split())))
         with col2:
-            content_type = st.selectbox(
-                "Content Type",
-                options=[ct.value for ct in ContentType],
-                format_func=lambda x: x.title(),
-            )
+            st.metric("Characters", content.get("character_count", len(content_text)))
+        with col3:
+            hashtags = content.get("hashtags", [])
+            if hashtags:
+                st.metric("Hashtags", len(hashtags))
+
+        # Copy button
+        if st.button("Copy to Clipboard", key="copy_content"):
+            st.code(content_text, language=None)
+            st.info("Select and copy the content above.")
+
+
+def _render_sidebar() -> None:
+    """Render the sidebar with conversation history."""
+    with st.sidebar:
+        st.subheader("Conversations")
+
+        # New conversation button
+        if st.button("New Conversation", type="primary", use_container_width=True):
+            _start_new_conversation()
+            st.rerun()
 
         st.divider()
 
-        # Get Socratic questions
-        questions = get_questions()
-
-        # Required questions
-        st.markdown("### Required Questions")
-
-        answers = {}
-        for q in questions:
-            if q["required"]:
-                answers[q["id"]] = st.text_area(
-                    q["question"],
-                    help=q["hint"],
-                    key=f"brief_{q['id']}",
-                    height=100,
-                )
-
-        # Optional questions
-        with st.expander("Optional Questions (Recommended)"):
-            for q in questions:
-                if not q["required"]:
-                    if q["id"] == "keywords":
-                        keywords_text = st.text_input(
-                            q["question"],
-                            help=q["hint"],
-                            key=f"brief_{q['id']}",
-                        )
-                        answers[q["id"]] = [k.strip() for k in keywords_text.split(",") if k.strip()]
-                    else:
-                        answers[q["id"]] = st.text_area(
-                            q["question"],
-                            help=q["hint"],
-                            key=f"brief_{q['id']}",
-                            height=80,
-                        )
-
-        submitted = st.form_submit_button("Generate Preview", type="primary")
-
-        if submitted:
+        # Load past conversations
+        user_id = _get_user_id()
+        if user_id:
             try:
-                brief = ContentBrief(
-                    platform=Platform(platform),
-                    content_type=ContentType(content_type),
-                    transformation=answers.get("transformation", ""),
-                    audience=answers.get("audience", ""),
-                    pain_point=answers.get("pain_point", ""),
-                    unique_angle=answers.get("unique_angle", ""),
-                    core_message=answers.get("core_message", ""),
-                    call_to_action=answers.get("call_to_action", ""),
-                    evidence=answers.get("evidence"),
-                    emotional_journey=answers.get("emotional_journey"),
-                    objections=answers.get("objections"),
-                    tone=answers.get("tone"),
-                    hook_style=answers.get("hook_style"),
-                    keywords=answers.get("keywords", []),
-                    constraints=answers.get("constraints"),
-                )
+                conversations = get_user_conversations(user_id, limit=10)
 
-                # Validate brief
-                errors = validate_brief(brief)
-                if errors:
-                    for error in errors:
-                        st.error(error)
+                if conversations:
+                    for conv in conversations:
+                        title = conv.title or "Untitled"
+                        if len(title) > 30:
+                            title = title[:27] + "..."
+
+                        # Highlight current conversation
+                        is_current = conv.id == st.session_state.conversation_id
+                        button_type = "primary" if is_current else "secondary"
+
+                        if st.button(
+                            title,
+                            key=f"conv_{conv.id}",
+                            type=button_type,
+                            use_container_width=True,
+                        ):
+                            _continue_conversation(conv.id)
+                            st.rerun()
                 else:
-                    st.session_state.current_brief = brief
-                    st.session_state.generation_step = "preview"
-                    st.rerun()
+                    st.caption("No past conversations")
 
-            except Exception as e:
-                st.error(f"Error creating brief: {e}")
+            except ConversationError:
+                st.caption("Could not load conversations")
+        else:
+            st.caption("Sign in to save conversations")
+
+        st.divider()
+
+        # Stats
+        coordinator = st.session_state.coordinator
+        if coordinator:
+            st.caption("**Session Stats**")
+            stats = coordinator.get_state_summary()
+            st.caption(f"Stage: {stats['stage_description']}")
+
+            cost = coordinator.get_total_cost()
+            if cost > 0:
+                st.caption(f"API Cost: ${cost:.4f}")
 
 
-def _render_preview_step() -> None:
-    """Render the preview generation step."""
-    st.subheader("Content Preview")
+def render_create_mode() -> None:
+    """Render the CREATE mode chat interface."""
+    _initialize_session_state()
 
-    brief = st.session_state.current_brief
-    if not brief:
-        st.session_state.generation_step = "brief"
+    # Render sidebar
+    _render_sidebar()
+
+    # Main content area
+    st.header("Create Content")
+
+    # Stage indicator
+    _render_stage_indicator()
+
+    st.divider()
+
+    # Start new conversation if none exists
+    if not st.session_state.chat_messages:
+        _start_new_conversation()
+
+    # Chat container
+    chat_container = st.container()
+
+    with chat_container:
+        # Render chat messages
+        _render_chat_messages()
+
+        # Render preview panel if available
+        _render_preview_panel()
+
+        # Render content panel if available
+        _render_content_panel()
+
+    # Chat input at bottom
+    coordinator = _get_or_create_coordinator()
+    stage = coordinator.get_current_stage()
+
+    # Determine placeholder based on stage
+    placeholders = {
+        AgentStage.ORCHESTRATOR: "Tell me about the content you want to create...",
+        AgentStage.WELLNESS: "Ask about specific facts or programs...",
+        AgentStage.STORYTELLING_PREVIEW: "Do you like this preview? (yes/no/try another)",
+        AgentStage.STORYTELLING_CONTENT: "Any adjustments needed?",
+        AgentStage.REVIEW: "Share your feedback on the content...",
+        AgentStage.COMPLETE: "Start a new conversation for more content",
+    }
+
+    placeholder = placeholders.get(stage, "Type your message...")
+
+    # Disable input if complete
+    disabled = stage == AgentStage.COMPLETE
+
+    # Chat input
+    if user_input := st.chat_input(placeholder, disabled=disabled):
+        _process_user_message(user_input)
         st.rerun()
-        return
 
-    # Show brief summary
-    with st.expander("Brief Summary", expanded=False):
-        st.markdown(brief.to_prompt_context())
-
-    # Generate preview if not already done
-    if st.session_state.current_preview is None:
-        with st.spinner("Generating preview..."):
-            try:
-                # Get knowledge context
-                knowledge_context = None
-                try:
-                    knowledge_results = search_knowledge(
-                        brief.core_message,
-                        match_count=5,
-                    )
-                    if knowledge_results:
-                        knowledge_context = "\n\n".join([
-                            r.get("content", "") for r in knowledge_results
-                        ])
-                except Exception:
-                    pass  # Knowledge base might not be set up
-
-                preview, metadata = generate_preview(
-                    brief,
-                    knowledge_context=knowledge_context,
-                )
-
-                st.session_state.current_preview = preview
-                st.session_state.preview_metadata = metadata
-
-            except Exception as e:
-                st.error(f"Failed to generate preview: {e}")
-                if st.button("Back to Brief"):
-                    st.session_state.generation_step = "brief"
-                    st.rerun()
-                return
-
-    preview = st.session_state.current_preview
-
-    # Display preview
-    st.markdown("### Hook")
-    st.info(preview.hook)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown(f"**Hook Type:** {preview.hook_type.replace('_', ' ').title()}")
-    with col2:
-        st.markdown(f"**Direction:** {preview.brief_summary}")
-
-    st.markdown("### Open Loops")
-    for loop in preview.open_loops:
-        st.markdown(f"- {loop}")
-
-    st.markdown("### Promise")
-    st.markdown(preview.promise)
-
-    # Show cost
-    if "preview_metadata" in st.session_state:
-        meta = st.session_state.preview_metadata
-        st.caption(f"Cost: ${meta.get('cost_usd', 0):.4f}")
-
-    st.divider()
-
-    # Actions
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("Regenerate Preview"):
-            st.session_state.current_preview = None
-            st.rerun()
-
-    with col2:
-        if st.button("Back to Brief"):
-            st.session_state.current_preview = None
-            st.session_state.generation_step = "brief"
-            st.rerun()
-
-    with col3:
-        if st.button("Approve & Generate Content", type="primary"):
-            st.session_state.generation_step = "content"
-            st.rerun()
-
-
-def _render_content_step() -> None:
-    """Render the full content generation step."""
-    st.subheader("Generated Content")
-
-    brief = st.session_state.current_brief
-    preview = st.session_state.current_preview
-
-    if not brief or not preview:
-        st.session_state.generation_step = "brief"
-        st.rerun()
-        return
-
-    # Generate content if not already done
-    if st.session_state.current_content is None:
-        with st.spinner("Generating content..."):
-            try:
-                # Get knowledge context
-                knowledge_context = None
-                try:
-                    knowledge_results = search_knowledge(
-                        brief.core_message,
-                        match_count=5,
-                    )
-                    if knowledge_results:
-                        knowledge_context = "\n\n".join([
-                            r.get("content", "") for r in knowledge_results
-                        ])
-                except Exception:
-                    pass
-
-                # Get few-shot examples
-                few_shot = None
-                try:
-                    brief_text = brief.to_prompt_context()
-                    examples = get_few_shot_examples(
-                        brief_text,
-                        platform=brief.platform.value,
-                        min_rating=4,
-                        max_examples=3,
-                    )
-                    if examples:
-                        few_shot = examples
-                except Exception:
-                    pass
-
-                content = generate_content(
-                    brief,
-                    preview,
-                    knowledge_context=knowledge_context,
-                    few_shot_examples=few_shot,
-                )
-
-                st.session_state.current_content = content
-
-            except Exception as e:
-                st.error(f"Failed to generate content: {e}")
-                if st.button("Back to Preview"):
-                    st.session_state.generation_step = "preview"
-                    st.rerun()
-                return
-
-    content = st.session_state.current_content
-
-    # Display content
-    st.markdown("### Your Content")
-    st.text_area(
-        "Content",
-        value=content.content,
-        height=400,
-        label_visibility="collapsed",
-    )
-
-    # Stats
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Words", content.word_count)
-    with col2:
-        st.metric("Characters", content.character_count)
-    with col3:
-        if content.hashtags:
-            st.metric("Hashtags", len(content.hashtags))
-
-    # Cost
-    if content.metadata:
-        st.caption(f"Cost: ${content.metadata.get('cost_usd', 0):.4f}")
-
-    st.divider()
-
-    # Actions
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("Regenerate Content"):
-            st.session_state.current_content = None
-            st.rerun()
-
-    with col2:
-        if st.button("Back to Preview"):
-            st.session_state.current_content = None
-            st.session_state.generation_step = "preview"
-            st.rerun()
-
-    with col3:
-        if st.button("Review & Rate", type="primary"):
-            st.session_state.generation_step = "review"
-            st.rerun()
-
-
-def _render_review_step() -> None:
-    """Render the review and rating step."""
-    st.subheader("Review & Rate")
-
-    brief = st.session_state.current_brief
-    preview = st.session_state.current_preview
-    content = st.session_state.current_content
-
-    if not brief or not preview or not content:
-        st.session_state.generation_step = "brief"
-        st.rerun()
-        return
-
-    # Display final content
-    st.markdown("### Final Content")
-    st.text_area(
-        "Content",
-        value=content.content,
-        height=300,
-        label_visibility="collapsed",
-        disabled=True,
-    )
-
-    st.divider()
-
-    # Rating form
-    with st.form("rating_form"):
-        st.markdown("### Rate This Content")
-
-        rating = st.slider(
-            "Overall Rating",
-            min_value=1,
-            max_value=5,
-            value=4,
-            help="1 = Poor, 5 = Excellent",
-        )
-
-        st.markdown("**What worked well?** (Select all that apply)")
-        what_worked_options = [
-            "Strong hook",
-            "Clear message",
-            "Good flow",
-            "Compelling CTA",
-            "On-brand tone",
-            "Accurate information",
-        ]
-        what_worked = [opt for opt in what_worked_options if st.checkbox(opt, key=f"worked_{opt}")]
-
-        st.markdown("**What needs improvement?** (Select all that apply)")
-        needs_work_options = [
-            "Weak hook",
-            "Unclear message",
-            "Poor flow",
-            "Weak CTA",
-            "Off-brand tone",
-            "Inaccurate information",
-        ]
-        what_needs_work = [opt for opt in needs_work_options if st.checkbox(opt, key=f"needs_{opt}")]
-
-        approve = st.checkbox("Approve this content for use", value=True)
-
-        submitted = st.form_submit_button("Save & Complete", type="primary")
-
-        if submitted:
-            try:
-                # Store generation with signals
-                user = st.session_state.get("user", {})
-                user_id = user.get("id") if user else None
-
-                store_generation_signals(
-                    brief=brief.to_dict(),
-                    preview=preview.to_dict(),
-                    content=content.content,
-                    platform=brief.platform.value,
-                    content_type=brief.content_type.value,
-                    rating=rating,
-                    what_worked=what_worked,
-                    what_needs_work=what_needs_work,
-                    was_approved=approve,
-                    user_id=user_id,
-                    api_cost_usd=content.metadata.get("cost_usd", 0),
-                )
-
-                st.session_state.content_saved = True
-
-            except Exception as e:
-                st.error(f"Failed to save: {e}")
-
-    # Show success message and reset button outside the form
-    if st.session_state.get("content_saved"):
-        st.success("Content saved!")
-        if st.button("Create New Content"):
-            st.session_state.current_brief = None
-            st.session_state.current_preview = None
-            st.session_state.current_content = None
-            st.session_state.generation_step = "brief"
-            st.session_state.content_saved = False
-            st.rerun()
-
-    # Copy button
-    st.divider()
-    if st.button("Copy Content to Clipboard"):
-        st.code(content.content, language=None)
-        st.info("Select and copy the content above.")
+    # Show processing indicator
+    if st.session_state.processing:
+        with st.spinner("Thinking..."):
+            pass

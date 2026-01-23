@@ -87,6 +87,10 @@ def _handle_oauth_callback():
     # Check if we have OAuth tokens in URL params
     query_params = st.query_params
 
+    # Skip if this is a password recovery callback (not OAuth)
+    if query_params.get("type") == "recovery":
+        return
+
     if "access_token" in query_params:
         try:
             access_token = query_params.get("access_token")
@@ -237,6 +241,14 @@ def _show_reset_password_form() -> bool:
     Returns:
         True if password reset successful, False otherwise
     """
+    # Check if password was just reset successfully
+    if st.session_state.get("password_reset_success"):
+        st.session_state["password_reset_success"] = False
+        st.success("Password updated successfully! You can now log in with your new password.")
+        if st.button("Go to Login", type="primary"):
+            st.rerun()
+        return False
+
     st.markdown("## Reset Your Password")
     st.markdown("Enter your new password below.")
 
@@ -276,13 +288,10 @@ def _show_reset_password_form() -> bool:
 
                 st.success("Password updated successfully! You can now log in with your new password.")
 
-                # Clear URL params
+                # Clear URL params and redirect to login
                 st.query_params.clear()
-
-                # Show link to login
-                if st.button("Go to Login"):
-                    st.rerun()
-
+                st.session_state["password_reset_success"] = True
+                st.rerun()
                 return True
 
             except Exception as e:

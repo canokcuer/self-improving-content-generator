@@ -55,8 +55,9 @@ def main():
 
     st.sidebar.divider()
 
-    # Render history sidebar (except in monitor mode)
-    if mode != "MONITOR":
+    # Render history sidebar only in REVIEW mode
+    # CREATE mode has its own conversation sidebar
+    if mode == "REVIEW":
         render_history_sidebar()
 
     # Main content area with error handling
