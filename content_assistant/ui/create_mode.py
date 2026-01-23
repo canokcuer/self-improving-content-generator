@@ -79,8 +79,8 @@ def _initialize_session_state() -> None:
         st.session_state.current_preview = None
     if "current_content" not in st.session_state:
         st.session_state.current_content = None
-    if "pending_message" not in st.session_state:
-        st.session_state.pending_message = None
+    if "awaiting_response" not in st.session_state:
+        st.session_state.awaiting_response = False
 
 
 def _get_or_create_coordinator() -> AgentCoordinator:
@@ -134,7 +134,7 @@ def _start_new_conversation() -> None:
     st.session_state.chat_messages = []
     st.session_state.current_preview = None
     st.session_state.current_content = None
-    st.session_state.pending_message = None
+    st.session_state.awaiting_response = False
 
     # Create new conversation in database
     user_id = _get_user_id()
@@ -378,36 +378,36 @@ def _render_sidebar() -> None:
                 st.caption(f"API Cost: ${cost:.4f}")
 
 
-def _process_and_display_response(message: str) -> None:
+def _process_and_display_response(message: str, response_placeholder) -> None:
     """Process message and display response with thinking indicators."""
     coordinator = _get_or_create_coordinator()
     current_stage = coordinator.get_current_stage()
     stage_info = STAGE_INFO.get(current_stage, {})
     agent_name = current_stage.value.split("_")[0]
 
-    # Show thinking status while processing
-    with st.chat_message("assistant"):
-        st.caption(f"*{agent_name.title()} Agent*")
+    # Show thinking in the placeholder
+    with response_placeholder.container():
+        with st.chat_message("assistant"):
+            st.caption(f"*{agent_name.title()} Agent*")
+            with st.status(stage_info.get("thinking", "Processing..."), expanded=True) as status:
+                st.write(f"**Stage:** {stage_info.get('name', 'Processing')}")
+                st.write("Analyzing your message...")
 
-        with st.status(stage_info.get("thinking", "Processing..."), expanded=True) as status:
-            # Show what we're doing
-            st.write(f"**Stage:** {stage_info.get('name', 'Processing')}")
-            st.write(f"**Action:** Analyzing your message...")
+                try:
+                    # Process through coordinator
+                    result = coordinator.process_message(message)
+                    status.update(label="Done!", state="complete", expanded=False)
 
-            try:
-                # Process through coordinator
-                result = coordinator.process_message(message)
+                except Exception as e:
+                    status.update(label="Error occurred", state="error", expanded=True)
+                    st.error(f"Error: {str(e)}")
+                    _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
+                    return
 
-                # Update status with success
-                status.update(label="Done!", state="complete", expanded=False)
+    # Clear placeholder and add response to history
+    response_placeholder.empty()
 
-            except Exception as e:
-                status.update(label="Error occurred", state="error", expanded=True)
-                st.error(f"Error: {str(e)}")
-                _add_message("assistant", f"I encountered an error: {str(e)}. Please try again.", agent="system")
-                return
-
-    # Now add the actual response
+    # Add the actual response
     stage = AgentStage(result["stage"])
     response_agent_name = stage.value.split("_")[0]
 
@@ -471,36 +471,21 @@ def render_create_mode() -> None:
         # Render chat messages
         _render_chat_messages()
 
+        # Create placeholder for response (before preview/content panels)
+        response_placeholder = st.empty()
+
         # Render preview panel if available
         _render_preview_panel()
 
         # Render content panel if available
         _render_content_panel()
 
-    # Check if there's a pending message to process
-    if st.session_state.pending_message:
-        message = st.session_state.pending_message
-        st.session_state.pending_message = None
-
-        # Add user message to chat display
-        with st.chat_message("user"):
-            st.markdown(message)
-
-        # Add to history
-        _add_message("user", message)
-
-        # Process and show response with thinking
-        _process_and_display_response(message)
-
-        # Rerun to refresh the UI
-        st.rerun()
-
     # Chat input at bottom
     coordinator = _get_or_create_coordinator()
     stage = coordinator.get_current_stage()
 
-    # Determine placeholder based on stage
-    placeholders = {
+    # Determine placeholder text based on stage
+    input_placeholders = {
         AgentStage.ORCHESTRATOR: "Tell me about the content you want to create...",
         AgentStage.WELLNESS: "Ask about specific facts or programs...",
         AgentStage.STORYTELLING_PREVIEW: "Do you like this preview? (yes/no/try another)",
@@ -509,13 +494,29 @@ def render_create_mode() -> None:
         AgentStage.COMPLETE: "Start a new conversation for more content",
     }
 
-    placeholder = placeholders.get(stage, "Type your message...")
+    input_placeholder = input_placeholders.get(stage, "Type your message...")
 
-    # Disable input if complete
-    disabled = stage == AgentStage.COMPLETE
+    # Disable input if processing or complete
+    disabled = stage == AgentStage.COMPLETE or st.session_state.awaiting_response
 
     # Chat input
-    if user_input := st.chat_input(placeholder, disabled=disabled):
-        # Store message and trigger processing on next rerun
-        st.session_state.pending_message = user_input
+    if user_input := st.chat_input(input_placeholder, disabled=disabled):
+        # Add user message immediately to chat history
+        _add_message("user", user_input)
+        # Set flag to process on next render
+        st.session_state.awaiting_response = True
         st.rerun()
+
+    # Process response if awaiting (after messages are displayed)
+    if st.session_state.awaiting_response:
+        # Get the last user message
+        last_user_msg = None
+        for msg in reversed(st.session_state.chat_messages):
+            if msg["role"] == "user":
+                last_user_msg = msg["content"]
+                break
+
+        if last_user_msg:
+            _process_and_display_response(last_user_msg, response_placeholder)
+            st.session_state.awaiting_response = False
+            st.rerun()
