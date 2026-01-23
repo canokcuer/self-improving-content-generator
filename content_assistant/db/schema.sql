@@ -354,7 +354,7 @@ CREATE TABLE IF NOT EXISTS agent_configurations (
     display_name VARCHAR(100) NOT NULL,
     description TEXT,
     system_prompt TEXT NOT NULL,
-    model VARCHAR(100) DEFAULT 'claude-opus-4-5-20250114',
+    model VARCHAR(100) DEFAULT 'claude-opus-4-5-20251101',
     temperature DECIMAL(3, 2) DEFAULT 0.7 CHECK (temperature >= 0 AND temperature <= 1),
     max_tokens INTEGER DEFAULT 4096,
     tools_enabled JSONB DEFAULT '[]',  -- List of tool names this agent can use

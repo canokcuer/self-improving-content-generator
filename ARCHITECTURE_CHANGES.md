@@ -279,7 +279,7 @@ Role-based access control
 ## Configuration Changes
 
 ### `config.py`
-- Default model changed to `claude-opus-4-5-20250114`
+- Default model changed to `claude-opus-4-5-20251101`
 
 ### `generation/claude_client.py`
 - Added Opus 4.5 pricing
