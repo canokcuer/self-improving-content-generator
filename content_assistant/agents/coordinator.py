@@ -398,6 +398,20 @@ class AgentCoordinator:
 
     def _process_review(self, message: str) -> dict:
         """Process review/feedback stage."""
+        if not self.state.feedback and not self.review.get_current_feedback():
+            generation_id = self.state.generation_id or "unsaved_generation"
+            content = self.state.content.content if self.state.content else ""
+            brief = self.state.brief.to_dict() if self.state.brief else {}
+            response = self.review.collect_feedback(generation_id, content, brief)
+
+            return {
+                "response": response.content,
+                "stage": AgentStage.REVIEW.value,
+                "stage_complete": False,
+                "next_action": "continue_feedback",
+                "data": {}
+            }
+
         # Collect feedback
         response = self.review.process_message_sync(message)
 
