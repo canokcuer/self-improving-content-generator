@@ -97,27 +97,55 @@ def _handle_oauth_callback():
     # Check if we have OAuth tokens in URL params
     query_params = st.query_params
 
-    # Debug: Show what params we have
-    if query_params:
-        logger.info(f"OAuth callback - query params: {dict(query_params)}")
-
     # Skip if this is a password recovery callback (not OAuth)
     if query_params.get("type") == "recovery":
         return
 
+    # Handle PKCE flow (code parameter)
+    if "code" in query_params:
+        try:
+            code = query_params.get("code")
+            logger.info(f"Processing OAuth PKCE callback with code: {code[:8]}...")
+
+            client = get_client()
+
+            # Exchange the code for a session
+            response = client.auth.exchange_code_for_session({"auth_code": code})
+
+            if response.session and response.user:
+                st.session_state["authenticated"] = True
+                st.session_state["user"] = {
+                    "id": response.user.id,
+                    "email": response.user.email,
+                }
+                st.session_state["access_token"] = response.session.access_token
+
+                logger.info(f"OAuth PKCE successful for user: {response.user.email}")
+
+                # Clear URL params
+                st.query_params.clear()
+                st.rerun()
+            else:
+                logger.warning("OAuth PKCE callback: exchange returned no session/user")
+                st.warning("OAuth returned no user. Please try again.")
+
+        except Exception as e:
+            logger.error(f"OAuth PKCE callback failed: {e}")
+            st.error(f"OAuth callback failed: {str(e)}")
+        return
+
+    # Handle implicit flow (access_token parameter) - fallback
     if "access_token" in query_params:
         try:
             access_token = query_params.get("access_token")
             refresh_token = query_params.get("refresh_token", "")
 
-            logger.info(f"Processing OAuth callback with token (first 20 chars): {access_token[:20] if access_token else 'None'}...")
+            logger.info(f"Processing OAuth implicit callback with token...")
 
             client = get_client()
 
             # Set the session with the tokens
             response = client.auth.set_session(access_token, refresh_token)
-
-            logger.info(f"set_session response: user={response.user is not None}")
 
             if response.user:
                 st.session_state["authenticated"] = True
@@ -127,17 +155,17 @@ def _handle_oauth_callback():
                 }
                 st.session_state["access_token"] = access_token
 
-                logger.info(f"OAuth successful for user: {response.user.email}")
+                logger.info(f"OAuth implicit successful for user: {response.user.email}")
 
                 # Clear URL params
                 st.query_params.clear()
                 st.rerun()
             else:
-                logger.warning("OAuth callback: set_session returned no user")
+                logger.warning("OAuth implicit callback: set_session returned no user")
                 st.warning("OAuth returned no user. Please try again.")
 
         except Exception as e:
-            logger.error(f"OAuth callback failed: {e}")
+            logger.error(f"OAuth implicit callback failed: {e}")
             st.error(f"OAuth callback failed: {str(e)}")
 
 
