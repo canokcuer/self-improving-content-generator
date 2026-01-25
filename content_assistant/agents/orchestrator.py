@@ -10,7 +10,7 @@ The Orchestrator Agent is responsible for:
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from content_assistant.agents.base_agent import BaseAgent, AgentTool
