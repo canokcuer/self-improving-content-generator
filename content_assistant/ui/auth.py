@@ -312,6 +312,8 @@ def _sign_in_with_google():
         client = get_client()
         redirect_url = _get_redirect_url()
 
+        st.info(f"Attempting OAuth with redirect: {redirect_url}")
+
         # Get the OAuth URL from Supabase
         response = client.auth.sign_in_with_oauth({
             "provider": "google",
@@ -325,10 +327,12 @@ def _sign_in_with_google():
             st.markdown(f'<meta http-equiv="refresh" content="0;url={response.url}">', unsafe_allow_html=True)
             st.info("Redirecting to Google...")
         else:
-            st.error("Failed to initiate Google sign-in. Please try again.")
+            st.error("Failed to initiate Google sign-in: No OAuth URL returned.")
+            st.info(f"Response: {response}")
 
     except Exception as e:
         st.error(f"Google sign-in failed: {str(e)}")
+        st.code(f"Redirect URL: {_get_redirect_url()}")
         st.info("Make sure Google OAuth is enabled in your Supabase dashboard.")
 
 
