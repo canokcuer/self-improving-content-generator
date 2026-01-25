@@ -48,12 +48,23 @@ class ContentBrief:
 
     def is_complete(self) -> bool:
         """Check if brief has minimum required information."""
-        return all([
+        base_complete = all([
             self.core_message,
             self.target_audience,
             self.platform,
             self.funnel_stage
         ])
+        if not base_complete:
+            return False
+        if self.funnel_stage == "conversion":
+            return all([
+                self.has_campaign,
+                self.campaign_price,
+                self.campaign_duration,
+                self.campaign_center,
+                self.campaign_deadline,
+            ])
+        return True
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -118,6 +129,10 @@ For Conversion Content (ask if funnel stage is conversion):
 - What duration? (3-day, 7-day, 14-day)
 - Which center(s)?
 - Any deadline/limited availability?
+
+Before marking a brief complete, confirm all required fields are present. If the funnel stage is
+conversion and any campaign fields are missing (campaign flag, price, duration, center, deadline),
+explicitly call out what is missing and continue the conversation without setting brief_complete.
 
 ## Funnel Stage Detection
 - **Awareness**: Educating new audiences, no specific offer, soft CTAs
