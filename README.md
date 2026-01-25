@@ -8,7 +8,7 @@ A self-improving AI content assistant for TheLifeCo's marketing team that create
 |--------|----------|
 | Business Goal | Maximize content performance (engagement, conversions) |
 | Core Thesis | Maximize content quality |
-| Modes | CREATE + REVIEW |
+| Modes | CREATE + REVIEW + MONITOR |
 | Content Types | Email, landing pages, social media, blog posts |
 | Interface | Streamlit web app |
 | AI | Claude (Anthropic) |
@@ -18,15 +18,41 @@ A self-improving AI content assistant for TheLifeCo's marketing team that create
 
 ## Key Features
 
-- **CREATE Mode**: Generate content from detailed briefs (13-question Socratic questionnaire)
+- **Agentic Pipeline**: Orchestrator → Wellness → Storytelling → Review
+- **CREATE Mode**: Generate content via conversational briefing (all 13 Socratic questions required)
 - **REVIEW Mode**: Analyze existing content for wellness accuracy and engagement
+- **MONITOR Mode**: Track system usage and costs
+- **Preview Approval**: Hooks/open loops approved before full generation
+- **Structured Feedback**: Ratings + checkboxes feed continuous improvement
 - **Self-Improving**: Learns from user feedback (star ratings, checkboxes) to improve over time
 - **A/B Testing**: Built-in experiment framework for testing variations
 - **Strict Fact Policy**: Only uses verified TheLifeCo information
 
+## Agentic Workflow
+
+```
+User ↔ Orchestrator → Wellness → Storytelling (Preview → Content) → Review
+           ↑                                                   ↓
+           └─────────── Forever Conversations ────────────────┘
+```
+
+## Knowledge Structure
+
+Agent-specific knowledge folders live under `knowledge/`:
+
+```
+knowledge/
+├── orchestrator/
+├── wellness/
+│   └── centers/
+├── storytelling/
+└── brand/
+```
+
 ## Documentation
 
 See [PLAN.md](./PLAN.md) for the complete architecture, PRD with 27 user stories, and implementation details.
+See [ARCHITECTURE_CHANGES.md](./ARCHITECTURE_CHANGES.md) and [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) for the agentic system rollout notes.
 
 ## Knowledge Base Files
 

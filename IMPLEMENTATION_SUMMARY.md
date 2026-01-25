@@ -1,6 +1,6 @@
 # TheLifeCo Self-Improving Content Generator - Implementation Summary
 
-**Date:** January 24, 2025
+**Date:** January 26, 2026
 **Purpose:** Comprehensive documentation of architecture changes, implementation decisions, and reasoning
 
 ---
@@ -80,14 +80,37 @@ User ←→ Orchestrator → Wellness → Storytelling → Review
 ```python
 @dataclass
 class ContentBrief:
-    platform: str              # instagram, facebook, newsletter, etc.
-    content_type: str          # post, story, article, etc.
-    target_audience: str       # Who we're writing for
     core_message: str          # Main point to communicate
+    target_audience: str       # Who we're writing for
+    platform: str              # instagram, facebook, newsletter, etc.
     funnel_stage: str          # awareness/consideration/conversion/loyalty
-    tone: str                  # Professional, friendly, urgent, etc.
-    campaign_details: dict     # Price, duration, center (for conversion)
-    # ... and more
+
+    # 13-question brief requirements
+    pain_area: str             # CRUCIAL
+    compliance_level: str      # High/Low
+    value_proposition: str
+    desired_action: str
+    specific_programs: list[str]
+    specific_centers: list[str]
+    tone: str
+    key_messages: list[str]
+    constraints: str
+    price_point: str
+
+    # Additional briefing signals
+    pain_point: str | None
+    transformation: str | None
+    content_type: str | None   # post, story, carousel, reel, article, etc.
+    specific_program: str | None
+    evidence_or_story: str | None
+    cta: str | None
+
+    # Campaign details (conversion)
+    has_campaign: bool
+    campaign_price: str
+    campaign_duration: str
+    campaign_center: str
+    campaign_deadline: str
 ```
 
 ---
@@ -120,10 +143,12 @@ class ContentBrief:
 ```python
 @dataclass
 class VerificationResult:
+    overall_score: float           # 0-100 verification score
     verified_facts: list[str]      # Facts confirmed by knowledge base
     unverified_claims: list[str]   # Claims we couldn't verify
-    suggested_corrections: dict    # "You said X, but actually Y"
-    confidence_score: float        # Overall verification confidence
+    corrections: list[dict]        # "You said X, but actually Y"
+    supporting_knowledge: list[str]
+    recommendations: list[str]
 ```
 
 ---

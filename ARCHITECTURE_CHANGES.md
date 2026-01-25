@@ -1,6 +1,6 @@
 # TheLifeCo Content Assistant - Architecture Changes Summary
 
-**Last Updated:** January 23, 2025
+**Last Updated:** January 26, 2026
 **Purpose:** Document major architecture changes for session continuity
 
 ---
@@ -23,6 +23,7 @@ The TheLifeCo Content Assistant is being transformed from a **form-based content
 **After:**
 - Natural conversation with Orchestrator Agent
 - Agent asks clarifying questions until 100% aligned
+- All 13 Socratic questions are enforced before progressing
 - Proactive suggestions based on context
 - Campaign/pricing collected dynamically when needed (not stored in KB)
 
@@ -68,7 +69,7 @@ User → Orchestrator (brief) → Wellness (verify) → Storytelling (preview �
 - History showed generations, not conversations
 
 **After:**
-- Conversations persist in database
+- Conversations persist in database with full agent state
 - Users can continue where they left off
 - Full message history preserved
 - Edit content through ongoing dialogue
