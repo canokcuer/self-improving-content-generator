@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from content_assistant.agents.base_agent import BaseAgent, AgentTool, AgentResponse
+from content_assistant.db.learnings import LearningsError, get_approved_learnings
 from content_assistant.rag.knowledge_base import search_knowledge
 
 
@@ -426,6 +427,33 @@ class StorytellingAgent(BaseAgent):
 
         return data, False, None
 
+    def _format_approved_learnings(self, brief: dict) -> str:
+        """Retrieve approved learnings to guide generation."""
+        topic = brief.get("core_message") or brief.get("pain_point") or brief.get("platform")
+        try:
+            learnings = get_approved_learnings(
+                agent_name=self.agent_name,
+                topic=topic,
+                limit=5,
+            )
+        except LearningsError:
+            return ""
+
+        if not learnings:
+            return ""
+
+        formatted = ["**Approved Learnings (apply when relevant):**"]
+        for learning in learnings:
+            summary = learning.get("learning_summary") or ""
+            content = learning.get("learning_content") or ""
+            learning_type = learning.get("learning_type") or "pattern"
+            confidence = learning.get("confidence_score")
+            confidence_str = f"{float(confidence):.0%}" if confidence is not None else "n/a"
+            formatted.append(
+                f"- ({learning_type}, confidence {confidence_str}) {summary or content}"
+            )
+        return "\n".join(formatted)
+
     def generate_preview(self, brief: dict, verified_facts: list) -> AgentResponse:
         """Generate content preview (hook + open loops + promise).
 
@@ -437,6 +465,7 @@ class StorytellingAgent(BaseAgent):
             AgentResponse with preview
         """
         facts_str = "\n".join(f"- {fact}" for fact in verified_facts[:5])
+        learnings_str = self._format_approved_learnings(brief)
 
         preview_request = f"""Generate a content preview for the following brief:
 
@@ -457,6 +486,8 @@ class StorytellingAgent(BaseAgent):
 
 **Verified Facts to Use:**
 {facts_str if facts_str else "No specific facts provided"}
+
+{learnings_str if learnings_str else ""}
 
 Please create a compelling preview with:
 1. An attention-grabbing hook appropriate for the funnel stage
@@ -484,6 +515,7 @@ Return in JSON format."""
             AgentResponse with full content
         """
         facts_str = "\n".join(f"- {fact}" for fact in verified_facts[:5])
+        learnings_str = self._format_approved_learnings(brief)
 
         content_request = f"""Generate the full content based on this approved preview:
 
@@ -507,6 +539,8 @@ Return in JSON format."""
 
 **Verified Facts:**
 {facts_str}
+
+{learnings_str if learnings_str else ""}
 
 Create the complete content:
 1. Start with the approved hook
