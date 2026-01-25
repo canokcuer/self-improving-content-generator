@@ -13,11 +13,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Callable
-import json
 
 from content_assistant.agents.orchestrator import OrchestratorAgent, ContentBrief
 from content_assistant.agents.wellness_agent import WellnessAgent, VerificationResult
-from content_assistant.agents.storytelling_agent import StorytellingAgent, ContentPreview, GeneratedContent
+from content_assistant.agents.storytelling_agent import (
+    StorytellingAgent,
+    ContentPreview,
+    GeneratedContent,
+    ApprovalIntent,
+)
 from content_assistant.agents.review_agent import ReviewAgent, UserFeedback
 
 
@@ -303,13 +307,9 @@ class AgentCoordinator:
                 }
             }
 
-        # Check if user approved preview
-        approval_keywords = ["yes", "approve", "looks good", "love it", "perfect", "go ahead", "proceed"]
-        rejection_keywords = ["no", "different", "another", "try again", "change", "don't like"]
+        assessment = self.storytelling.interpret_approval_intent(message, self.state.preview)
 
-        message_lower = message.lower()
-
-        if any(kw in message_lower for kw in approval_keywords):
+        if assessment.intent == ApprovalIntent.APPROVE:
             # User approved, move to full content generation
             self._change_stage(AgentStage.STORYTELLING_CONTENT)
 
@@ -321,10 +321,19 @@ class AgentCoordinator:
                 "data": {}
             }
 
-        elif any(kw in message_lower for kw in rejection_keywords):
-            # User wants different preview
+        if assessment.intent in {ApprovalIntent.APPROVE_WITH_CHANGES, ApprovalIntent.REJECT}:
+            # User wants revisions or a different preview
             brief_dict = self.state.brief.to_dict() if self.state.brief else {}
-            response = self.storytelling.regenerate_hook(brief_dict)
+            verified_facts = []
+            if self.state.verification:
+                verified_facts = self.state.verification.verified_facts
+
+            response = self.storytelling.regenerate_preview_with_feedback(
+                brief_dict,
+                verified_facts,
+                message,
+                self.state.preview,
+            )
             self.state.preview = self.storytelling.get_current_preview()
 
             return {
@@ -336,8 +345,19 @@ class AgentCoordinator:
                     "preview": {
                         "hook": self.state.preview.hook if self.state.preview else "",
                         "hook_type": self.state.preview.hook_type if self.state.preview else "",
+                        "open_loops": self.state.preview.open_loops if self.state.preview else [],
+                        "promise": self.state.preview.promise if self.state.preview else "",
                     }
                 }
+            }
+
+        if assessment.intent == ApprovalIntent.UNCLEAR:
+            return {
+                "response": "Would you like to approve this preview as-is, or should I adjust anything?",
+                "stage": AgentStage.STORYTELLING_PREVIEW.value,
+                "stage_complete": False,
+                "next_action": "approve_preview",
+                "data": {}
             }
 
         # Continue conversation
