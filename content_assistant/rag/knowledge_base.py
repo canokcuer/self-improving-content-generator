@@ -4,7 +4,7 @@ Provides end-to-end functionality for loading documents into the RAG system.
 """
 
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from content_assistant.config import get_config
 from content_assistant.rag.loader import load_document, LoaderError
@@ -188,10 +188,62 @@ def load_default_knowledge_base(replace_existing: bool = True) -> dict:
     )
 
 
+def _normalize_sources(sources: Sequence[str] | str | None) -> list[str]:
+    """Normalize allowed source filters for knowledge search."""
+    if not sources:
+        return []
+
+    if isinstance(sources, str):
+        sources = [sources]
+
+    normalized = []
+    for source in sources:
+        if not source:
+            continue
+        cleaned = str(source).strip().strip("/")
+        if cleaned:
+            normalized.append(cleaned)
+
+    return normalized
+
+
+def _source_allowed(source: str, allowed: list[str], knowledge_dir: Path) -> bool:
+    """Determine whether a source matches any allowed knowledge filters."""
+    if not allowed:
+        return True
+
+    if not source:
+        return False
+
+    normalized_source = source.strip().lstrip("/")
+
+    for allowed_source in allowed:
+        if normalized_source == allowed_source:
+            return True
+        if normalized_source.startswith(f"{allowed_source}/"):
+            return True
+        if normalized_source.startswith(f"{allowed_source}\\"):
+            return True
+        if normalized_source.startswith(f"{allowed_source}_"):
+            return True
+
+    if knowledge_dir.exists():
+        for allowed_source in allowed:
+            allowed_path = knowledge_dir / allowed_source
+            if allowed_path.is_dir() and (allowed_path / normalized_source).exists():
+                return True
+
+    return False
+
+
 def search_knowledge(
     query: str,
     match_threshold: float = 0.7,
     match_count: int = 5,
+    *,
+    sources: Sequence[str] | str | None = None,
+    threshold: Optional[float] = None,
+    top_k: Optional[int] = None,
 ) -> list[dict]:
     """Search the knowledge base for relevant content.
 
@@ -199,12 +251,20 @@ def search_knowledge(
         query: Search query text
         match_threshold: Minimum similarity score (0-1)
         match_count: Maximum number of results
+        sources: Optional list of allowed knowledge sources/paths
+        threshold: Alias for match_threshold
+        top_k: Alias for match_count
 
     Returns:
         List of matching chunks with similarity scores
     """
     from content_assistant.rag.embeddings import embed_query
     from content_assistant.rag.vector_store import search_similar
+
+    if threshold is not None:
+        match_threshold = threshold
+    if top_k is not None:
+        match_count = top_k
 
     try:
         # Generate query embedding
@@ -217,7 +277,16 @@ def search_knowledge(
             match_count=match_count,
         )
 
-        return results
+        allowed_sources = _normalize_sources(sources)
+        if not allowed_sources:
+            return results
+
+        knowledge_dir = Path(get_config().knowledge_dir)
+        return [
+            result
+            for result in results
+            if _source_allowed(result.get("source", ""), allowed_sources, knowledge_dir)
+        ]
 
     except (EmbeddingError, VectorStoreError) as e:
         raise KnowledgeBaseError(f"Search failed: {e}") from e

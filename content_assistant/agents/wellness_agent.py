@@ -204,7 +204,8 @@ class WellnessAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {program_name} program",
             top_k=5,
-            threshold=0.4
+            threshold=0.4,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -236,7 +237,8 @@ class WellnessAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {center_name} center",
             top_k=5,
-            threshold=0.4
+            threshold=0.4,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -263,7 +265,8 @@ class WellnessAgent(BaseAgent):
         results = search_knowledge(
             claim,
             top_k=5,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -285,7 +288,8 @@ class WellnessAgent(BaseAgent):
         results = search_knowledge(
             topic,
             top_k=max_facts,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -394,5 +398,10 @@ Return your verification results in JSON format."""
         Returns:
             List of verified facts
         """
-        results = search_knowledge(topic, top_k=count, threshold=0.5)
+        results = search_knowledge(
+            topic,
+            top_k=count,
+            threshold=0.5,
+            sources=self.knowledge_sources,
+        )
         return [r.get("content", "") for r in results]

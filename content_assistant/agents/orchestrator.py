@@ -253,7 +253,12 @@ class OrchestratorAgent(BaseAgent):
             query += f" for {funnel_stage} stage"
 
         # Search knowledge base for relevant patterns
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No similar content examples found. I'll create fresh content based on best practices."
@@ -271,7 +276,8 @@ class OrchestratorAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {program_name} program details benefits",
             top_k=3,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -289,7 +295,8 @@ class OrchestratorAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {center_name} center location facilities",
             top_k=3,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:

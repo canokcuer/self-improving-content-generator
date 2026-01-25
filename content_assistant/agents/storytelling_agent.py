@@ -291,7 +291,12 @@ class StorytellingAgent(BaseAgent):
         if topic:
             query += f" {topic}"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No hook patterns found. Using default patterns."
@@ -307,7 +312,8 @@ class StorytellingAgent(BaseAgent):
         results = search_knowledge(
             f"{platform} content rules guidelines best practices",
             top_k=3,
-            threshold=0.4
+            threshold=0.4,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -325,7 +331,12 @@ class StorytellingAgent(BaseAgent):
         if tactic_type:
             query = f"{tactic_type} engagement tactics"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No specific tactics found. Using general engagement principles."
@@ -346,7 +357,12 @@ class StorytellingAgent(BaseAgent):
         if platform:
             query += f" {platform}"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return f"No specific CTAs found for {funnel_stage}. Using general templates."
@@ -370,7 +386,12 @@ class StorytellingAgent(BaseAgent):
         if platform:
             query += f" {platform}"
 
-        results = search_knowledge(query, top_k=count, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=count,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No similar examples found. Creating fresh content."

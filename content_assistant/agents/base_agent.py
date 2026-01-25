@@ -141,7 +141,8 @@ class BaseAgent(ABC):
             results = search_knowledge(
                 query=query,
                 top_k=max_results,
-                threshold=0.5
+                threshold=0.5,
+                sources=self.knowledge_sources,
             )
 
             if not results:
