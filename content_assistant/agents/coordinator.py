@@ -81,6 +81,45 @@ class CoordinatorState:
         state.stage = AgentStage(data.get("stage", "orchestrator"))
         if data.get("brief"):
             state.brief = ContentBrief.from_dict(data["brief"])
+        if data.get("verification"):
+            verification_data = data["verification"]
+            state.verification = VerificationResult(
+                overall_score=verification_data.get("overall_score", 0.0),
+                verified_facts=verification_data.get("verified_facts", []),
+                unverified_claims=verification_data.get("unverified_claims", []),
+                corrections=verification_data.get("corrections", []),
+                supporting_knowledge=verification_data.get("supporting_knowledge", []),
+                recommendations=verification_data.get("recommendations", []),
+            )
+        if data.get("preview"):
+            preview_data = data["preview"]
+            state.preview = ContentPreview(
+                hook=preview_data.get("hook", ""),
+                hook_type=preview_data.get("hook_type", ""),
+                open_loops=preview_data.get("open_loops", []),
+                promise=preview_data.get("promise", ""),
+                brief_summary=preview_data.get("brief_summary", ""),
+            )
+        if data.get("content"):
+            content_data = data["content"]
+            content_preview = None
+            if content_data.get("preview"):
+                preview_data = content_data["preview"]
+                content_preview = ContentPreview(
+                    hook=preview_data.get("hook", ""),
+                    hook_type=preview_data.get("hook_type", ""),
+                    open_loops=preview_data.get("open_loops", []),
+                    promise=preview_data.get("promise", ""),
+                    brief_summary=preview_data.get("brief_summary", ""),
+                )
+            state.content = GeneratedContent(
+                content=content_data.get("content", ""),
+                word_count=content_data.get("word_count", 0),
+                hashtags=content_data.get("hashtags", []),
+                preview=content_preview,
+                variations=content_data.get("variations", []),
+                engagement_prediction=content_data.get("engagement_prediction", 0.0),
+            )
         state.conversation_id = data.get("conversation_id")
         state.user_id = data.get("user_id")
         state.generation_id = data.get("generation_id")
