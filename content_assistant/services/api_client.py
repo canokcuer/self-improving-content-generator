@@ -170,20 +170,32 @@ class APIClient:
     def update_conversation(
         self,
         conversation_id: str,
+        data: Optional[Dict[str, Any]] = None,
         title: Optional[str] = None,
         status: Optional[str] = None,
     ) -> APIResponse:
-        """Update a conversation's metadata."""
-        data = {}
+        """Update a conversation's metadata and state.
+
+        Args:
+            conversation_id: Conversation ID
+            data: Dict of fields to update (alternative to individual params)
+            title: Conversation title
+            status: Conversation status
+
+        Returns:
+            APIResponse with updated conversation
+        """
+        # Accept either a data dict or individual params
+        update_data = data or {}
         if title is not None:
-            data["title"] = title
+            update_data["title"] = title
         if status is not None:
-            data["status"] = status
+            update_data["status"] = status
 
         return self._request(
             "PUT",
             f"/api/conversations/{conversation_id}",
-            json=data,
+            json=update_data,
         )
 
     def delete_conversation(self, conversation_id: str) -> APIResponse:
@@ -195,12 +207,16 @@ class APIClient:
         conversation_id: str,
         role: str,
         content: str,
+        agent_name: Optional[str] = None,
     ) -> APIResponse:
         """Add a message to a conversation."""
+        data = {"role": role, "content": content}
+        if agent_name:
+            data["agent_name"] = agent_name
         return self._request(
             "POST",
             f"/api/conversations/{conversation_id}/messages",
-            json={"role": role, "content": content},
+            json=data,
         )
 
     # ============================================

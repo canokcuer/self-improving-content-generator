@@ -55,8 +55,9 @@ def _handle_hash_fragments():
                 const hash = window.location.hash.substring(1);
                 const params = new URLSearchParams(hash);
 
-                // Check if this is a recovery/reset flow
-                if (params.get('type') === 'recovery' || params.get('access_token')) {
+                // Check if this contains OAuth tokens
+                if (params.get('access_token')) {
+                    console.log('OAuth hash detected, converting to query params');
                     // Convert hash to query params and redirect
                     const newUrl = window.location.pathname + '?' + hash;
                     window.location.replace(newUrl);
@@ -96,6 +97,10 @@ def _handle_oauth_callback():
     # Check if we have OAuth tokens in URL params
     query_params = st.query_params
 
+    # Debug: Show what params we have
+    if query_params:
+        logger.info(f"OAuth callback - query params: {dict(query_params)}")
+
     # Skip if this is a password recovery callback (not OAuth)
     if query_params.get("type") == "recovery":
         return
@@ -105,10 +110,14 @@ def _handle_oauth_callback():
             access_token = query_params.get("access_token")
             refresh_token = query_params.get("refresh_token", "")
 
+            logger.info(f"Processing OAuth callback with token (first 20 chars): {access_token[:20] if access_token else 'None'}...")
+
             client = get_client()
 
             # Set the session with the tokens
             response = client.auth.set_session(access_token, refresh_token)
+
+            logger.info(f"set_session response: user={response.user is not None}")
 
             if response.user:
                 st.session_state["authenticated"] = True
@@ -118,12 +127,18 @@ def _handle_oauth_callback():
                 }
                 st.session_state["access_token"] = access_token
 
+                logger.info(f"OAuth successful for user: {response.user.email}")
+
                 # Clear URL params
                 st.query_params.clear()
                 st.rerun()
+            else:
+                logger.warning("OAuth callback: set_session returned no user")
+                st.warning("OAuth returned no user. Please try again.")
 
-        except Exception:
-            pass  # OAuth callback failed, show login form
+        except Exception as e:
+            logger.error(f"OAuth callback failed: {e}")
+            st.error(f"OAuth callback failed: {str(e)}")
 
 
 def _get_redirect_url() -> str:

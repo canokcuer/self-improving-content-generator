@@ -12,9 +12,14 @@ from fastapi.responses import JSONResponse
 import logging
 import os
 
+from content_assistant.api.middleware.audit import AuditLogMiddleware, setup_audit_logging
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Setup audit logging
+setup_audit_logging()
 
 
 @asynccontextmanager
@@ -63,6 +68,9 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     allow_headers=["*"],
 )
+
+# Add audit logging middleware
+app.add_middleware(AuditLogMiddleware)
 
 
 # Global exception handler

@@ -28,6 +28,7 @@ class MessageCreate(BaseModel):
     """Schema for creating a new message."""
     role: str = Field(..., pattern=r"^(user|assistant|system)$")
     content: str = Field(..., min_length=1, max_length=50000)
+    agent_name: Optional[str] = Field(None, max_length=100)
 
 
 class ConversationCreate(BaseModel):
@@ -213,6 +214,20 @@ async def update_conversation(
             update_data["title"] = data.title
         if data.status is not None:
             update_data["status"] = data.status
+        if data.current_agent is not None:
+            update_data["current_agent"] = data.current_agent
+        if data.agent_state is not None:
+            update_data["agent_state"] = data.agent_state
+        if data.brief_data is not None:
+            update_data["brief_data"] = data.brief_data
+        if data.funnel_stage is not None:
+            update_data["funnel_stage"] = data.funnel_stage
+        if data.platform is not None:
+            update_data["platform"] = data.platform
+        if data.content_type is not None:
+            update_data["content_type"] = data.content_type
+        if data.campaign_info is not None:
+            update_data["campaign_info"] = data.campaign_info
 
         if not update_data:
             raise HTTPException(
@@ -325,6 +340,8 @@ async def add_message(
             "content": message.content,
             "timestamp": datetime.utcnow().isoformat(),
         }
+        if message.agent_name:
+            new_message["agent_name"] = message.agent_name
         messages.append(new_message)
 
         # Update the conversation
