@@ -7,7 +7,6 @@ Provides common functionality for all agents including:
 - Cost tracking
 """
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime

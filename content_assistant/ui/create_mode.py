@@ -9,12 +9,10 @@ Provides a conversational chat interface for:
 
 import streamlit as st
 from typing import Optional
-import time
 
 from content_assistant.agents import (
     AgentCoordinator,
     AgentStage,
-    CoordinatorState,
 )
 from content_assistant.db.conversations import (
     create_conversation,
@@ -392,7 +390,7 @@ def _process_and_display_response(message: str, response_placeholder) -> None:
             with st.status(stage_info.get("thinking", "Processing..."), expanded=True) as status:
                 st.write(f"**Stage:** {stage_info.get('name', 'Processing')}")
                 st.write("Analyzing your message...")
-                st.write(f"*Calling Claude API...*")
+                st.write("*Calling Claude API...*")
 
                 try:
                     # Process through coordinator
@@ -440,7 +438,13 @@ def _process_and_display_response(message: str, response_placeholder) -> None:
                     conversation.funnel_stage = brief.funnel_stage
                     conversation.platform = brief.platform
                     conversation.content_type = brief.content_type
-                    conversation.campaign_info = brief.campaign_details or {}
+                    conversation.campaign_info = {
+                        "has_campaign": brief.has_campaign,
+                        "campaign_price": brief.campaign_price,
+                        "campaign_duration": brief.campaign_duration,
+                        "campaign_center": brief.campaign_center,
+                        "campaign_deadline": brief.campaign_deadline,
+                    }
 
                 update_conversation(conversation)
         except ConversationError:

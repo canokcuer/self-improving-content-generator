@@ -22,7 +22,7 @@ class TestConfig:
             voyage_api_key="test-voyage",
         )
         assert config.supabase_url == "https://test.supabase.co"
-        assert config.claude_model == "claude-sonnet-4-20250514"
+        assert config.claude_model == "claude-opus-4-5-20251101"
         assert config.embedding_dimension == 1024
 
     def test_config_missing_required_field(self, mock_env_vars):

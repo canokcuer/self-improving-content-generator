@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Callable
-import json
 
 from content_assistant.agents.orchestrator import OrchestratorAgent, ContentBrief
 from content_assistant.agents.wellness_agent import WellnessAgent, VerificationResult
@@ -413,7 +412,10 @@ class AgentCoordinator:
                 "next_action": "complete",
                 "data": {
                     "feedback": self.state.feedback.to_dict() if self.state.feedback else {},
-                    "learnings": [l.to_dict() for l in self.review.get_extracted_learnings()],
+                    "learnings": [
+                        learning.to_dict()
+                        for learning in self.review.get_extracted_learnings()
+                    ],
                     "message": "Thank you for your feedback! This helps us improve."
                 }
             }

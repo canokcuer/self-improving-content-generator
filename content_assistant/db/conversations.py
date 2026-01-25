@@ -4,7 +4,6 @@ Handles storing and retrieving conversations for the "forever conversation" feat
 allowing users to continue content generation across sessions.
 """
 
-import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
