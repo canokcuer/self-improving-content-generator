@@ -4,12 +4,21 @@ Handles Supabase authentication integration including:
 - Email/password login
 - Google OAuth
 - Password reset
+
+SECURITY NOTE: Uses the PUBLIC Supabase client for auth operations.
+This is correct since Supabase auth is designed for client-side use.
+Password validation is enforced to ensure strong passwords.
 """
 
 import streamlit as st
 from typing import Optional
+import logging
 
 from content_assistant.db.supabase_client import get_client
+from content_assistant.utils.sanitizer import validate_password, validate_email
+from content_assistant.utils.error_handler import handle_error, ErrorType
+
+logger = logging.getLogger(__name__)
 
 
 def check_authentication() -> bool:
@@ -188,7 +197,8 @@ def show_login_form() -> bool:
                     return True
 
             except Exception as e:
-                st.error(f"Login failed: {str(e)}")
+                logger.error(f"Login failed: {e}")
+                st.error(handle_error(e, ErrorType.AUTH_FAILED, context="login"))
                 return False
 
         if forgot:
@@ -213,24 +223,33 @@ def show_login_form() -> bool:
                     st.error("Please fill in all fields.")
                 elif new_password != confirm_password:
                     st.error("Passwords do not match.")
-                elif len(new_password) < 6:
-                    st.error("Password must be at least 6 characters.")
                 else:
-                    try:
-                        client = get_client()
-                        response = client.auth.sign_up({
-                            "email": new_email,
-                            "password": new_password,
-                        })
-
-                        if response.user:
-                            st.success("Account created! You can now log in.")
-                            st.rerun()
+                    # Validate email format
+                    email_valid, email_error = validate_email(new_email)
+                    if not email_valid:
+                        st.error(email_error)
+                    else:
+                        # Validate password strength
+                        password_valid, password_error = validate_password(new_password)
+                        if not password_valid:
+                            st.error(password_error)
                         else:
-                            st.error("Signup failed. Please try again.")
+                            try:
+                                client = get_client()
+                                response = client.auth.sign_up({
+                                    "email": new_email,
+                                    "password": new_password,
+                                })
 
-                    except Exception as e:
-                        st.error(f"Signup failed: {str(e)}")
+                                if response.user:
+                                    st.success("Account created! You can now log in.")
+                                    st.rerun()
+                                else:
+                                    st.error("Signup failed. Please try again.")
+
+                            except Exception as e:
+                                logger.error(f"Signup failed: {e}")
+                                st.error(handle_error(e, ErrorType.AUTH_FAILED, context="signup"))
 
     return False
 
@@ -267,8 +286,10 @@ def _show_reset_password_form() -> bool:
                 st.error("Passwords do not match.")
                 return False
 
-            if len(new_password) < 6:
-                st.error("Password must be at least 6 characters.")
+            # Validate password strength
+            password_valid, password_error = validate_password(new_password)
+            if not password_valid:
+                st.error(password_error)
                 return False
 
             try:
@@ -295,7 +316,8 @@ def _show_reset_password_form() -> bool:
                 return True
 
             except Exception as e:
-                st.error(f"Failed to update password: {str(e)}")
+                logger.error(f"Failed to update password: {e}")
+                st.error(handle_error(e, ErrorType.AUTH_FAILED, context="password_reset"))
                 return False
 
     st.markdown("---")
@@ -312,8 +334,6 @@ def _sign_in_with_google():
         client = get_client()
         redirect_url = _get_redirect_url()
 
-        st.info(f"Attempting OAuth with redirect: {redirect_url}")
-
         # Get the OAuth URL from Supabase
         response = client.auth.sign_in_with_oauth({
             "provider": "google",
@@ -323,16 +343,21 @@ def _sign_in_with_google():
         })
 
         if response.url:
-            # Redirect to Google OAuth
-            st.markdown(f'<meta http-equiv="refresh" content="0;url={response.url}">', unsafe_allow_html=True)
-            st.info("Redirecting to Google...")
+            # Redirect to Google OAuth using JavaScript (more reliable than meta refresh)
+            js_redirect = f"""
+            <script>
+                window.location.href = "{response.url}";
+            </script>
+            """
+            st.markdown(js_redirect, unsafe_allow_html=True)
+            # Provide a manual link as fallback
+            st.markdown(f"[Click here if not redirected automatically]({response.url})")
         else:
             st.error("Failed to initiate Google sign-in: No OAuth URL returned.")
-            st.info(f"Response: {response}")
 
     except Exception as e:
-        st.error(f"Google sign-in failed: {str(e)}")
-        st.code(f"Redirect URL: {_get_redirect_url()}")
+        logger.error(f"Google sign-in failed: {e}")
+        st.error(handle_error(e, ErrorType.AUTH_FAILED, context="google_oauth"))
         st.info("Make sure Google OAuth is enabled in your Supabase dashboard.")
 
 
@@ -356,7 +381,8 @@ def _send_password_reset(email: str):
         st.success(f"Password reset email sent to {email}. Check your inbox!")
 
     except Exception as e:
-        st.error(f"Failed to send reset email: {str(e)}")
+        logger.error(f"Failed to send reset email: {e}")
+        st.error(handle_error(e, ErrorType.AUTH_FAILED, context="password_reset_email"))
 
 
 def logout() -> None:

@@ -1,17 +1,28 @@
 """Monitoring dashboard for API costs and usage.
 
 Tracks API costs, usage patterns, and budget management.
+
+SECURITY NOTE: This is an admin-only page. Access control is enforced
+via the API endpoints which require admin role.
 """
 
 import streamlit as st
 from datetime import datetime, timedelta
+import logging
 
-from content_assistant.db.supabase_client import get_admin_client
+from content_assistant.services.api_client import api_client
+
+logger = logging.getLogger(__name__)
 
 
 def render_monitoring_dashboard() -> None:
     """Render the monitoring dashboard."""
     st.header("Monitoring Dashboard")
+
+    # Check admin access first
+    if not _check_admin_access():
+        st.error("Access denied. Admin privileges required.")
+        return
 
     # Date range selector
     col1, col2 = st.columns(2)
@@ -42,23 +53,33 @@ def render_monitoring_dashboard() -> None:
     _render_recent_activity()
 
 
+def _check_admin_access() -> bool:
+    """Check if current user has admin access via API."""
+    try:
+        response = api_client.check_admin_status()
+        if response.success and response.data:
+            return response.data.get("is_admin", False)
+        return False
+    except Exception as e:
+        logger.error(f"Failed to check admin status: {e}")
+        return False
+
+
 def _render_cost_overview(start_date, end_date) -> None:
     """Render API cost overview."""
     st.subheader("API Costs")
 
     try:
-        client = get_admin_client()
+        response = api_client.get_admin_costs(
+            start_date=start_date.isoformat(),
+            end_date=(end_date + timedelta(days=1)).isoformat(),
+        )
 
-        # Get cost data
-        result = client.rpc(
-            "get_cost_summary",
-            {
-                "start_date": start_date.isoformat(),
-                "end_date": (end_date + timedelta(days=1)).isoformat(),
-            },
-        ).execute()
+        if not response.success:
+            st.error("Failed to load cost data")
+            return
 
-        costs = result.data or []
+        costs = response.data or []
 
         if not costs:
             st.info("No API costs recorded for this period.")
@@ -86,10 +107,11 @@ def _render_cost_overview(start_date, end_date) -> None:
         # Budget warning
         monthly_budget = 50.0  # Default budget
         if total_cost > monthly_budget * 0.8:
-            st.warning(f"⚠️ Approaching monthly budget (${monthly_budget})")
+            st.warning(f"Approaching monthly budget (${monthly_budget})")
 
     except Exception as e:
-        st.error(f"Failed to load costs: {e}")
+        logger.error(f"Failed to load costs: {e}")
+        st.error("Failed to load cost data")
 
 
 def _render_generation_stats() -> None:
@@ -97,30 +119,17 @@ def _render_generation_stats() -> None:
     st.subheader("Generation Statistics")
 
     try:
-        client = get_admin_client()
+        response = api_client.get_admin_stats()
 
-        # Total generations
-        total_result = client.table("content_generations").select("id", count="exact").execute()
-        total = total_result.count or 0
+        if not response.success:
+            st.error("Failed to load statistics")
+            return
 
-        # Approved generations
-        approved_result = (
-            client.table("content_generations")
-            .select("id", count="exact")
-            .eq("was_approved", True)
-            .execute()
-        )
-        approved = approved_result.count or 0
+        stats = response.data or {}
 
-        # Average rating
-        rated_result = (
-            client.table("content_generations")
-            .select("rating")
-            .not_.is_("rating", "null")
-            .execute()
-        )
-        ratings = [r["rating"] for r in rated_result.data if r.get("rating")]
-        avg_rating = sum(ratings) / len(ratings) if ratings else 0
+        total = stats.get("total_generations", 0)
+        approved = stats.get("approved_count", 0)
+        avg_rating = stats.get("avg_rating", 0) or 0
 
         # Display metrics
         col1, col2, col3, col4 = st.columns(4)
@@ -139,26 +148,17 @@ def _render_generation_stats() -> None:
             st.metric("Avg Rating", f"{avg_rating:.1f}/5")
 
         # Platform breakdown
-        st.markdown("### By Platform")
-        platform_result = (
-            client.table("content_generations")
-            .select("platform")
-            .execute()
-        )
-
-        if platform_result.data:
-            platforms = {}
-            for row in platform_result.data:
-                p = row.get("platform", "unknown")
-                platforms[p] = platforms.get(p, 0) + 1
-
-            cols = st.columns(len(platforms))
-            for i, (platform, count) in enumerate(sorted(platforms.items(), key=lambda x: -x[1])):
+        platform_breakdown = stats.get("platform_breakdown", {})
+        if platform_breakdown:
+            st.markdown("### By Platform")
+            cols = st.columns(len(platform_breakdown))
+            for i, (platform, count) in enumerate(sorted(platform_breakdown.items(), key=lambda x: -x[1])):
                 with cols[i % len(cols)]:
-                    st.metric(platform.title(), count)
+                    st.metric(platform.title() if platform else "Unknown", count)
 
     except Exception as e:
-        st.error(f"Failed to load stats: {e}")
+        logger.error(f"Failed to load stats: {e}")
+        st.error("Failed to load statistics")
 
 
 def _render_recent_activity() -> None:
@@ -166,18 +166,15 @@ def _render_recent_activity() -> None:
     st.subheader("Recent Activity")
 
     try:
-        client = get_admin_client()
+        # Use admin stats endpoint which includes recent activity
+        response = api_client.get_admin_stats()
 
-        # Get recent generations
-        result = (
-            client.table("content_generations")
-            .select("id, platform, content_type, rating, was_approved, created_at")
-            .order("created_at", desc=True)
-            .limit(10)
-            .execute()
-        )
+        if not response.success:
+            st.info("No recent activity available.")
+            return
 
-        generations = result.data or []
+        stats = response.data or {}
+        generations = stats.get("recent_generations", [])
 
         if not generations:
             st.info("No recent activity.")
@@ -192,7 +189,8 @@ def _render_recent_activity() -> None:
                 st.markdown(f"**{created}**")
 
             with col2:
-                st.markdown(gen.get("platform", "").title())
+                platform = gen.get("platform", "")
+                st.markdown(platform.title() if platform else "—")
 
             with col3:
                 rating = gen.get("rating")
@@ -208,7 +206,8 @@ def _render_recent_activity() -> None:
                     st.markdown("—")
 
     except Exception as e:
-        st.error(f"Failed to load activity: {e}")
+        logger.error(f"Failed to load activity: {e}")
+        st.error("Failed to load activity")
 
 
 def log_api_cost(
@@ -221,6 +220,10 @@ def log_api_cost(
 ) -> None:
     """Log an API cost entry.
 
+    SECURITY NOTE: This function is for BACKEND USE ONLY.
+    It uses admin client because cost logging happens during agent
+    operations, not from user-facing UI code.
+
     Args:
         service: Service name (anthropic, voyage)
         operation: Operation name
@@ -230,6 +233,10 @@ def log_api_cost(
         metadata: Optional additional metadata
     """
     try:
+        # Import here to avoid circular imports and keep admin_client
+        # usage isolated to this backend-only function
+        from content_assistant.db.supabase_client import get_admin_client
+
         client = get_admin_client()
 
         client.table("api_costs").insert({

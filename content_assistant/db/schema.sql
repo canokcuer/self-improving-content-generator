@@ -265,6 +265,29 @@ END;
 $$;
 
 -- ============================================
+-- SECURITY: Lock down RPC function permissions
+-- Prevents unauthorized access to database functions
+-- ============================================
+
+-- match_knowledge_chunks: Allow authenticated users (for RAG search)
+REVOKE EXECUTE ON FUNCTION match_knowledge_chunks(vector(1024), float, int) FROM public;
+REVOKE EXECUTE ON FUNCTION match_knowledge_chunks(vector(1024), float, int) FROM anon;
+GRANT EXECUTE ON FUNCTION match_knowledge_chunks(vector(1024), float, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION match_knowledge_chunks(vector(1024), float, int) TO service_role;
+
+-- match_content_generations: Allow authenticated users (for few-shot examples)
+REVOKE EXECUTE ON FUNCTION match_content_generations(vector(1024), int, int) FROM public;
+REVOKE EXECUTE ON FUNCTION match_content_generations(vector(1024), int, int) FROM anon;
+GRANT EXECUTE ON FUNCTION match_content_generations(vector(1024), int, int) TO authenticated;
+GRANT EXECUTE ON FUNCTION match_content_generations(vector(1024), int, int) TO service_role;
+
+-- get_cost_summary: ADMIN ONLY (service_role required)
+REVOKE EXECUTE ON FUNCTION get_cost_summary(timestamp with time zone, timestamp with time zone) FROM public;
+REVOKE EXECUTE ON FUNCTION get_cost_summary(timestamp with time zone, timestamp with time zone) FROM anon;
+REVOKE EXECUTE ON FUNCTION get_cost_summary(timestamp with time zone, timestamp with time zone) FROM authenticated;
+GRANT EXECUTE ON FUNCTION get_cost_summary(timestamp with time zone, timestamp with time zone) TO service_role;
+
+-- ============================================
 -- Row Level Security (RLS) Policies
 -- ============================================
 
@@ -312,22 +335,36 @@ ON knowledge_chunks FOR SELECT
 TO authenticated
 USING (true);
 
--- Allow authenticated users to manage their own content generations
-CREATE POLICY "Users can read all content_generations"
+-- ============================================
+-- SECURITY FIX: Restrict content_generations to owner-only access
+-- Previously: Users could read ALL content_generations (USING true)
+-- Now: Users can only access their OWN content_generations
+-- ============================================
+
+-- SELECT: Users can only read their own content generations
+CREATE POLICY "Users can read their own content_generations"
 ON content_generations FOR SELECT
 TO authenticated
-USING (true);
+USING (user_id = auth.uid());
 
-CREATE POLICY "Users can insert content_generations"
+-- INSERT: Users can only insert with their own user_id
+CREATE POLICY "Users can insert their own content_generations"
 ON content_generations FOR INSERT
 TO authenticated
-WITH CHECK (true);
+WITH CHECK (user_id = auth.uid());
 
+-- UPDATE: Users can only update their own content (removed NULL bypass)
 CREATE POLICY "Users can update their own content_generations"
 ON content_generations FOR UPDATE
 TO authenticated
-USING (user_id = auth.uid() OR user_id IS NULL)
-WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
+USING (user_id = auth.uid())
+WITH CHECK (user_id = auth.uid());
+
+-- DELETE: Users can only delete their own content
+CREATE POLICY "Users can delete their own content_generations"
+ON content_generations FOR DELETE
+TO authenticated
+USING (user_id = auth.uid());
 
 -- Allow authenticated users to read experiments and their assignments
 CREATE POLICY "Authenticated users can read experiments"

@@ -2,19 +2,74 @@
 
 Captures user feedback signals (ratings, checkboxes, implicit signals)
 for learning and improving content generation over time.
+
+SECURITY NOTE:
+- Functions that modify user-specific data validate user ownership
+- Backend agents use these for service operations with validated user_id
+- UI should use API endpoints which enforce auth via JWT
 """
 
 from typing import Optional
 from uuid import UUID
+import logging
 
 from content_assistant.db.supabase_client import get_admin_client
 from content_assistant.rag.embeddings import embed_text, EmbeddingError
+
+logger = logging.getLogger(__name__)
 
 
 class SignalError(Exception):
     """Raised when signal operations fail."""
 
     pass
+
+
+class AuthorizationError(SignalError):
+    """Raised when user doesn't have access to a generation."""
+
+    pass
+
+
+def _validate_user_owns_generation(
+    generation_id: str,
+    user_id: str,
+    client=None
+) -> bool:
+    """Validate that a user owns a specific generation.
+
+    Args:
+        generation_id: ID of the generation
+        user_id: ID of the user to validate
+        client: Optional Supabase client
+
+    Returns:
+        True if user owns the generation
+
+    Raises:
+        AuthorizationError: If user doesn't own the generation
+        SignalError: If generation not found
+    """
+    if client is None:
+        client = get_admin_client()
+
+    result = client.table("content_generations")\
+        .select("user_id")\
+        .eq("id", str(generation_id))\
+        .execute()
+
+    if not result.data:
+        raise SignalError(f"Generation not found: {generation_id}")
+
+    owner_id = result.data[0].get("user_id")
+    if owner_id != user_id:
+        logger.warning(
+            f"Authorization failed: user {user_id} attempted to access "
+            f"generation {generation_id} owned by {owner_id}"
+        )
+        raise AuthorizationError("You don't have access to this generation")
+
+    return True
 
 
 def store_generation_signals(
@@ -122,20 +177,30 @@ def store_generation_signals(
         raise SignalError(f"Failed to store generation: {e}") from e
 
 
-def get_generation_by_id(generation_id: str | UUID) -> Optional[dict]:
+def get_generation_by_id(
+    generation_id: str | UUID,
+    require_user_id: Optional[str] = None
+) -> Optional[dict]:
     """Get a content generation by ID.
 
     Args:
         generation_id: UUID of the generation
+        require_user_id: If provided, validates that this user owns the generation.
+                        Use this for user-initiated requests to prevent unauthorized access.
 
     Returns:
         Generation data dict or None if not found
 
     Raises:
+        AuthorizationError: If require_user_id is set and user doesn't own generation
         SignalError: If query fails
     """
     try:
         client = get_admin_client()
+
+        # If user validation required, check ownership first
+        if require_user_id:
+            _validate_user_owns_generation(str(generation_id), require_user_id, client)
 
         result = (
             client.table("content_generations")
@@ -148,6 +213,8 @@ def get_generation_by_id(generation_id: str | UUID) -> Optional[dict]:
             return result.data[0]
         return None
 
+    except AuthorizationError:
+        raise
     except Exception as e:
         raise SignalError(f"Failed to get generation: {e}") from e
 
@@ -157,6 +224,7 @@ def update_generation_rating(
     rating: int,
     what_worked: Optional[list[str]] = None,
     what_needs_work: Optional[list[str]] = None,
+    require_user_id: Optional[str] = None,
 ) -> bool:
     """Update the rating and feedback for a generation.
 
@@ -165,11 +233,14 @@ def update_generation_rating(
         rating: New rating 1-5
         what_worked: Updated positive feedback
         what_needs_work: Updated improvement areas
+        require_user_id: If provided, validates that this user owns the generation.
+                        Use this for user-initiated requests to prevent unauthorized access.
 
     Returns:
         True if update successful
 
     Raises:
+        AuthorizationError: If require_user_id is set and user doesn't own generation
         SignalError: If update fails
     """
     if not 1 <= rating <= 5:
@@ -177,6 +248,10 @@ def update_generation_rating(
 
     try:
         client = get_admin_client()
+
+        # If user validation required, check ownership first
+        if require_user_id:
+            _validate_user_owns_generation(str(generation_id), require_user_id, client)
 
         update_data = {"rating": rating}
 
@@ -195,6 +270,8 @@ def update_generation_rating(
 
         return len(result.data) > 0
 
+    except AuthorizationError:
+        raise
     except Exception as e:
         raise SignalError(f"Failed to update rating: {e}") from e
 
@@ -202,21 +279,29 @@ def update_generation_rating(
 def mark_generation_approved(
     generation_id: str | UUID,
     manual_edits: Optional[str] = None,
+    require_user_id: Optional[str] = None,
 ) -> bool:
     """Mark a generation as approved.
 
     Args:
         generation_id: UUID of the generation
         manual_edits: Any manual edits made before approval
+        require_user_id: If provided, validates that this user owns the generation.
+                        Use this for user-initiated requests to prevent unauthorized access.
 
     Returns:
         True if update successful
 
     Raises:
+        AuthorizationError: If require_user_id is set and user doesn't own generation
         SignalError: If update fails
     """
     try:
         client = get_admin_client()
+
+        # If user validation required, check ownership first
+        if require_user_id:
+            _validate_user_owns_generation(str(generation_id), require_user_id, client)
 
         update_data = {"was_approved": True}
 
@@ -232,6 +317,8 @@ def mark_generation_approved(
 
         return len(result.data) > 0
 
+    except AuthorizationError:
+        raise
     except Exception as e:
         raise SignalError(f"Failed to mark approved: {e}") from e
 

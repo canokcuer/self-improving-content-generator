@@ -2,19 +2,73 @@
 
 Handles storing and retrieving conversations for the "forever conversation" feature,
 allowing users to continue content generation across sessions.
+
+SECURITY NOTE:
+- Backend agents use get_admin_client() for service-level operations
+- Frontend operations should use the API client (services/api_client.py)
+- User ownership is validated via RLS policies when using authenticated client
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
+import logging
 
 from content_assistant.db.supabase_client import get_admin_client
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationError(Exception):
     """Raised when conversation operations fail."""
     pass
+
+
+class AuthorizationError(ConversationError):
+    """Raised when user doesn't have access to a resource."""
+    pass
+
+
+def _validate_user_owns_conversation(
+    conversation_id: str,
+    user_id: str,
+    client=None
+) -> bool:
+    """
+    Validate that a user owns a specific conversation.
+
+    Args:
+        conversation_id: ID of the conversation
+        user_id: ID of the user to validate
+        client: Optional Supabase client (uses admin client if not provided)
+
+    Returns:
+        True if user owns the conversation
+
+    Raises:
+        AuthorizationError: If user doesn't own the conversation
+    """
+    if client is None:
+        client = get_admin_client()
+
+    result = client.table("conversations")\
+        .select("user_id")\
+        .eq("id", conversation_id)\
+        .execute()
+
+    if not result.data:
+        raise ConversationError(f"Conversation not found: {conversation_id}")
+
+    owner_id = result.data[0].get("user_id")
+    if owner_id != user_id:
+        logger.warning(
+            f"Authorization failed: user {user_id} attempted to access "
+            f"conversation {conversation_id} owned by {owner_id}"
+        )
+        raise AuthorizationError("You don't have access to this conversation")
+
+    return True
 
 
 @dataclass
@@ -204,17 +258,30 @@ def create_conversation(user_id: str, title: Optional[str] = None) -> Conversati
         raise ConversationError(f"Failed to create conversation: {e}") from e
 
 
-def get_conversation(conversation_id: str) -> Optional[Conversation]:
+def get_conversation(
+    conversation_id: str,
+    require_user_id: Optional[str] = None
+) -> Optional[Conversation]:
     """Get a conversation by ID.
 
     Args:
         conversation_id: Conversation ID
+        require_user_id: If provided, validates that this user owns the conversation.
+                        Use this for user-initiated requests to prevent unauthorized access.
 
     Returns:
         Conversation object or None if not found
+
+    Raises:
+        AuthorizationError: If require_user_id is set and user doesn't own conversation
     """
     try:
         client = get_admin_client()
+
+        # If user validation required, check ownership first
+        if require_user_id:
+            _validate_user_owns_conversation(conversation_id, require_user_id, client)
+
         result = client.table("conversations")\
             .select("*")\
             .eq("id", conversation_id)\
@@ -224,6 +291,8 @@ def get_conversation(conversation_id: str) -> Optional[Conversation]:
             return Conversation.from_dict(result.data[0])
         return None
 
+    except AuthorizationError:
+        raise
     except Exception as e:
         raise ConversationError(f"Failed to get conversation: {e}") from e
 
@@ -475,22 +544,41 @@ def archive_conversation(conversation_id: str) -> Conversation:
     return update_conversation(conversation)
 
 
-def delete_conversation(conversation_id: str) -> bool:
+def delete_conversation(
+    conversation_id: str,
+    require_user_id: Optional[str] = None
+) -> bool:
     """Delete a conversation.
 
     Args:
         conversation_id: Conversation ID
+        require_user_id: If provided, validates that this user owns the conversation.
+                        Use this for user-initiated requests to prevent unauthorized access.
 
     Returns:
         True if deleted successfully
+
+    Raises:
+        AuthorizationError: If require_user_id is set and user doesn't own conversation
     """
     try:
         client = get_admin_client()
-        client.table("conversations")\
+
+        # If user validation required, check ownership first
+        if require_user_id:
+            _validate_user_owns_conversation(conversation_id, require_user_id, client)
+
+        result = client.table("conversations")\
             .delete()\
             .eq("id", conversation_id)\
             .execute()
+
+        if not result.data:
+            logger.warning(f"Delete had no effect for conversation {conversation_id}")
+
         return True
 
+    except AuthorizationError:
+        raise
     except Exception as e:
         raise ConversationError(f"Failed to delete conversation: {e}") from e

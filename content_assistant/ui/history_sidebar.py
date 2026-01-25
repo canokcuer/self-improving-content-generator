@@ -1,12 +1,19 @@
 """History sidebar for past generations.
 
 Shows past content generations with ability to reload and reuse.
+
+SECURITY NOTE: All database operations go through the API client
+which enforces authentication via JWT tokens.
 """
 
 import streamlit as st
 from typing import Optional
+import logging
 
-from content_assistant.review.signals import get_user_generations, get_generation_by_id
+from content_assistant.services.api_client import api_client
+from content_assistant.utils.error_handler import safe_error_message
+
+logger = logging.getLogger(__name__)
 
 
 def render_history_sidebar() -> None:
@@ -22,7 +29,13 @@ def render_history_sidebar() -> None:
         return
 
     try:
-        generations = get_user_generations(user_id, limit=10)
+        response = api_client.get_generations(limit=10)
+
+        if not response.success:
+            st.sidebar.error("Failed to load history")
+            return
+
+        generations = response.data or []
 
         if not generations:
             st.sidebar.info("No past generations yet.")
@@ -32,7 +45,8 @@ def render_history_sidebar() -> None:
             _render_history_item(gen)
 
     except Exception as e:
-        st.sidebar.error(f"Failed to load history: {e}")
+        logger.error(f"Failed to load history: {e}")
+        st.sidebar.error("Failed to load history")
 
 
 def _render_history_item(generation: dict) -> None:
@@ -70,15 +84,18 @@ def _render_history_item(generation: dict) -> None:
 def _load_generation(generation_id: str) -> None:
     """Load a generation into the current session."""
     try:
-        generation = get_generation_by_id(generation_id)
+        response = api_client.get_generation(generation_id)
 
-        if generation:
+        if response.success and response.data:
             # Store in session state for reference
-            st.session_state.loaded_generation = generation
+            st.session_state.loaded_generation = response.data
             st.sidebar.success("Loaded! Check content in main area.")
+        else:
+            st.sidebar.error("Generation not found")
 
     except Exception as e:
-        st.sidebar.error(f"Failed to load: {e}")
+        logger.error(f"Failed to load generation: {e}")
+        st.sidebar.error("Failed to load")
 
 
 def get_loaded_generation() -> Optional[dict]:

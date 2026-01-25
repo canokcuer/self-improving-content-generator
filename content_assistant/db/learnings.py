@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Optional
 
 from content_assistant.db.supabase_client import get_client
+from content_assistant.utils.sanitizer import sanitize_like_pattern
 
 
 class LearningsError(Exception):
@@ -42,7 +43,9 @@ def get_approved_learnings(
             query = query.eq("learning_type", learning_type)
 
         if topic:
-            topic_filter = f"%{topic}%"
+            # SECURITY: Escape LIKE pattern special characters to prevent injection
+            safe_topic = sanitize_like_pattern(topic)
+            topic_filter = f"%{safe_topic}%"
             query = query.or_(
                 f"learning_content.ilike.{topic_filter},learning_summary.ilike.{topic_filter}"
             )

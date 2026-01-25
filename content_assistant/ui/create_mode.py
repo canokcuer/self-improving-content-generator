@@ -5,23 +5,23 @@ Provides a conversational chat interface for:
 - Preview generation and approval
 - Full content generation
 - Feedback collection
+
+SECURITY NOTE: All database operations go through the API client
+which enforces authentication via JWT tokens.
 """
 
 import streamlit as st
 from typing import Optional
+import logging
 
 from content_assistant.agents import (
     AgentCoordinator,
     AgentStage,
 )
-from content_assistant.db.conversations import (
-    create_conversation,
-    get_conversation,
-    update_conversation,
-    get_user_conversations,
-    add_message_to_conversation,
-    ConversationError,
-)
+from content_assistant.services.api_client import api_client
+from content_assistant.utils.error_handler import handle_error, ErrorType
+
+logger = logging.getLogger(__name__)
 
 
 # Stage display names and descriptions
@@ -108,18 +108,20 @@ def _add_message(role: str, content: str, agent: Optional[str] = None) -> None:
     }
     st.session_state.chat_messages.append(message)
 
-    # Also save to database if conversation exists
+    # Also save to database via API if conversation exists
     conversation_id = st.session_state.conversation_id
     if conversation_id:
         try:
-            add_message_to_conversation(
+            response = api_client.add_message(
                 conversation_id=conversation_id,
                 role=role,
                 content=content,
                 agent_name=agent,
             )
-        except ConversationError:
-            pass
+            if not response.success:
+                logger.warning(f"Failed to save message: {response.error}")
+        except Exception as e:
+            logger.warning(f"Failed to save message: {e}")
 
 
 def _start_new_conversation() -> None:
@@ -134,14 +136,19 @@ def _start_new_conversation() -> None:
     st.session_state.current_content = None
     st.session_state.awaiting_response = False
 
-    # Create new conversation in database
+    # Create new conversation via API
     user_id = _get_user_id()
     if user_id:
         try:
-            conversation = create_conversation(user_id)
-            st.session_state.conversation_id = conversation.id
-            coordinator.set_user_context(user_id, conversation.id)
-        except ConversationError:
+            response = api_client.create_conversation()
+            if response.success and response.data:
+                st.session_state.conversation_id = response.data.get("id")
+                coordinator.set_user_context(user_id, st.session_state.conversation_id)
+            else:
+                logger.warning(f"Failed to create conversation: {response.error}")
+                st.session_state.conversation_id = None
+        except Exception as e:
+            logger.error(f"Failed to create conversation: {e}")
             st.session_state.conversation_id = None
 
     # Add welcome message
@@ -160,20 +167,16 @@ What would you like to create today?"""
 def _continue_conversation(conversation_id: str) -> None:
     """Continue an existing conversation."""
     try:
-        conversation = get_conversation(conversation_id)
-        if conversation:
+        response = api_client.get_conversation(conversation_id)
+        if response.success and response.data:
+            conversation = response.data
             st.session_state.conversation_id = conversation_id
 
             # Restore chat messages
             st.session_state.chat_messages = []
-            for msg in conversation.messages:
-                if hasattr(msg, 'role'):
-                    st.session_state.chat_messages.append({
-                        "role": msg.role,
-                        "content": msg.content,
-                        "agent": msg.agent_name,
-                    })
-                elif isinstance(msg, dict):
+            messages = conversation.get("messages", [])
+            for msg in messages:
+                if isinstance(msg, dict):
                     st.session_state.chat_messages.append({
                         "role": msg.get("role", "user"),
                         "content": msg.get("content", ""),
@@ -182,14 +185,19 @@ def _continue_conversation(conversation_id: str) -> None:
 
             # Restore coordinator state
             coordinator = _get_or_create_coordinator()
-            if conversation.agent_state:
-                coordinator.import_state(conversation.agent_state)
+            agent_state = conversation.get("agent_state")
+            if agent_state:
+                coordinator.import_state(agent_state)
 
             user_id = _get_user_id()
             if user_id:
                 coordinator.set_user_context(user_id, conversation_id)
+        else:
+            logger.warning(f"Failed to load conversation: {response.error}")
+            _start_new_conversation()
 
-    except ConversationError:
+    except Exception as e:
+        logger.error(f"Failed to continue conversation: {e}")
         _start_new_conversation()
 
 
@@ -330,34 +338,37 @@ def _render_sidebar() -> None:
 
         st.divider()
 
-        # Load past conversations
+        # Load past conversations via API
         user_id = _get_user_id()
         if user_id:
             try:
-                conversations = get_user_conversations(user_id, limit=10)
+                response = api_client.get_conversations(limit=10)
 
-                if conversations:
+                if response.success and response.data:
+                    conversations = response.data
                     for conv in conversations:
-                        title = conv.title or "Untitled"
+                        title = conv.get("title") or "Untitled"
                         if len(title) > 30:
                             title = title[:27] + "..."
 
                         # Highlight current conversation
-                        is_current = conv.id == st.session_state.conversation_id
+                        conv_id = conv.get("id")
+                        is_current = conv_id == st.session_state.conversation_id
                         button_type = "primary" if is_current else "secondary"
 
                         if st.button(
                             title,
-                            key=f"conv_{conv.id}",
+                            key=f"conv_{conv_id}",
                             type=button_type,
                             use_container_width=True,
                         ):
-                            _continue_conversation(conv.id)
+                            _continue_conversation(conv_id)
                             st.rerun()
                 else:
                     st.caption("No past conversations")
 
-            except ConversationError:
+            except Exception as e:
+                logger.warning(f"Failed to load conversations: {e}")
                 st.caption("Could not load conversations")
         else:
             st.caption("Sign in to save conversations")
@@ -423,32 +434,34 @@ def _process_and_display_response(message: str, response_placeholder) -> None:
         if "content" in data:
             st.session_state.current_content = data["content"]
 
-    # Save coordinator state
+    # Save coordinator state via API
     conversation_id = st.session_state.conversation_id
     if conversation_id:
         try:
-            conversation = get_conversation(conversation_id)
-            if conversation:
-                conversation.agent_state = coordinator.export_state()
-                conversation.current_agent = response_agent_name
+            update_data = {
+                "agent_state": coordinator.export_state(),
+                "current_agent": response_agent_name,
+            }
 
-                brief = coordinator.state.brief
-                if brief:
-                    conversation.brief_data = brief.to_dict()
-                    conversation.funnel_stage = brief.funnel_stage
-                    conversation.platform = brief.platform
-                    conversation.content_type = brief.content_type
-                    conversation.campaign_info = {
-                        "has_campaign": brief.has_campaign,
-                        "campaign_price": brief.campaign_price,
-                        "campaign_duration": brief.campaign_duration,
-                        "campaign_center": brief.campaign_center,
-                        "campaign_deadline": brief.campaign_deadline,
-                    }
+            brief = coordinator.state.brief
+            if brief:
+                update_data["brief_data"] = brief.to_dict()
+                update_data["funnel_stage"] = brief.funnel_stage
+                update_data["platform"] = brief.platform
+                update_data["content_type"] = brief.content_type
+                update_data["campaign_info"] = {
+                    "has_campaign": brief.has_campaign,
+                    "campaign_price": brief.campaign_price,
+                    "campaign_duration": brief.campaign_duration,
+                    "campaign_center": brief.campaign_center,
+                    "campaign_deadline": brief.campaign_deadline,
+                }
 
-                update_conversation(conversation)
-        except ConversationError:
-            pass
+            response = api_client.update_conversation(conversation_id, update_data)
+            if not response.success:
+                logger.warning(f"Failed to update conversation state: {response.error}")
+        except Exception as e:
+            logger.warning(f"Failed to update conversation state: {e}")
 
 
 def render_create_mode() -> None:
