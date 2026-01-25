@@ -7,7 +7,6 @@ Provides common functionality for all agents including:
 - Cost tracking
 """
 
-import json
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -141,7 +140,8 @@ class BaseAgent(ABC):
             results = search_knowledge(
                 query=query,
                 top_k=max_results,
-                threshold=0.5
+                threshold=0.5,
+                sources=self.knowledge_sources,
             )
 
             if not results:
@@ -203,10 +203,18 @@ class BaseAgent(ABC):
         messages = []
         for msg in self._conversation:
             if msg.role in ("user", "assistant"):
+                content = msg.metadata.get("claude_content", msg.content)
                 messages.append({
                     "role": msg.role,
-                    "content": msg.content
+                    "content": content
                 })
+            elif msg.role == "tool_result":
+                tool_results = msg.metadata.get("tool_results", msg.tool_results)
+                if tool_results:
+                    messages.append({
+                        "role": "user",
+                        "content": tool_results
+                    })
         return messages
 
     def clear_conversation(self) -> None:
@@ -283,6 +291,7 @@ class BaseAgent(ABC):
                 # Process tool calls
                 assistant_content = response.content
                 tool_results = []
+                current_tool_calls = []
 
                 for block in assistant_content:
                     if block.type == "tool_use":
@@ -292,9 +301,16 @@ class BaseAgent(ABC):
 
                         # Execute tool
                         result = self._execute_tool(tool_name, tool_input)
+                        current_tool_calls.append({
+                            "tool": tool_name,
+                            "input": tool_input,
+                            "id": tool_id,
+                            "result": result
+                        })
                         tool_calls_made.append({
                             "tool": tool_name,
                             "input": tool_input,
+                            "id": tool_id,
                             "result": result
                         })
 
@@ -315,6 +331,29 @@ class BaseAgent(ABC):
                     "role": "user",
                     "content": tool_results
                 })
+
+                tool_calls_metadata = [
+                    {
+                        "tool": call["tool"],
+                        "input": call["input"],
+                        "tool_use_id": call["id"]
+                    }
+                    for call in current_tool_calls
+                    if "id" in call
+                ]
+
+                self.add_message(
+                    "assistant",
+                    "",
+                    tool_calls=tool_calls_metadata,
+                    metadata={"claude_content": assistant_content}
+                )
+                self.add_message(
+                    "tool_result",
+                    "",
+                    tool_results=tool_results,
+                    metadata={"tool_results": tool_results}
+                )
 
                 # Continue the loop to get final response
                 continue

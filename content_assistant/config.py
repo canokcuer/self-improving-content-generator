@@ -32,7 +32,7 @@ class Config:
     voyage_api_key: str
 
     # Model Configuration
-    claude_model: str = "claude-opus-4-5-20251101"  # Opus 4.5 for high-quality generation
+    claude_model: str = "claude-opus-4-5-20251101"
     voyage_model: str = "voyage-3-lite"
     embedding_dimension: int = 1024
 

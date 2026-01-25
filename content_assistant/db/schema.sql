@@ -488,7 +488,7 @@ CREATE TABLE IF NOT EXISTS conversations (
     status VARCHAR(20) DEFAULT 'active' CHECK (status IN ('active', 'completed', 'archived')),
 
     -- Conversation content
-    messages JSONB[] DEFAULT '{}',  -- Array of message objects
+    messages JSONB DEFAULT '[]'::jsonb,  -- Array of message objects
 
     -- Agent state
     current_agent VARCHAR(50),  -- Which agent is currently active
@@ -519,6 +519,25 @@ CREATE TRIGGER update_conversations_updated_at
     BEFORE UPDATE ON conversations
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+
+-- Backfill: ensure messages is JSONB array (not JSONB[])
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM information_schema.columns
+        WHERE table_name = 'conversations'
+          AND column_name = 'messages'
+          AND udt_name = '_jsonb'
+    ) THEN
+        ALTER TABLE conversations
+            ALTER COLUMN messages TYPE JSONB
+            USING to_jsonb(messages);
+    END IF;
+
+    ALTER TABLE conversations
+        ALTER COLUMN messages SET DEFAULT '[]'::jsonb;
+END $$;
 
 -- ============================================
 -- Table 10: user_roles

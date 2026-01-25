@@ -169,6 +169,7 @@ class ReviewAgent(BaseAgent):
 
         self._current_feedback: Optional[UserFeedback] = None
         self._extracted_learnings: list[ExtractedLearning] = []
+        self._pending_generation_id: Optional[str] = None
 
     def register_tools(self) -> None:
         """Register review-specific tools."""
@@ -383,6 +384,7 @@ class ReviewAgent(BaseAgent):
 
                 if "feedback_summary" in parsed:
                     data["feedback_summary"] = parsed["feedback_summary"]
+                    self._update_feedback_from_summary(parsed["feedback_summary"])
                     return data, True, None  # Feedback collection complete
 
                 if "learnings" in parsed:
@@ -392,7 +394,221 @@ class ReviewAgent(BaseAgent):
             except json.JSONDecodeError:
                 pass
 
+        heuristic_feedback = self._extract_feedback_from_text(response)
+        if heuristic_feedback:
+            data["feedback_summary"] = heuristic_feedback
+            self._update_feedback_from_summary(heuristic_feedback)
+            if self._has_minimum_feedback(heuristic_feedback):
+                return data, True, None
+
         return data, False, None
+
+    def _extract_feedback_from_text(self, response: str) -> dict:
+        """Heuristically extract feedback signals from plain text."""
+        rating = self._parse_rating_from_text(response)
+        worked = self._extract_section_items(
+            response,
+            heading_patterns=[
+                r"what worked",
+                r"worked well",
+                r"strengths?",
+                r"positives?",
+                r"liked",
+            ],
+        )
+        needs_work = self._extract_section_items(
+            response,
+            heading_patterns=[
+                r"needs work",
+                r"improvements?",
+                r"could be improved",
+                r"issues?",
+                r"weaknesses?",
+            ],
+        )
+
+        if not worked or not needs_work:
+            inferred_worked, inferred_needs_work = self._infer_topic_feedback(response)
+            if not worked:
+                worked = inferred_worked
+            if not needs_work:
+                needs_work = inferred_needs_work
+
+        feedback_text = self._extract_freeform_feedback(response, rating, worked, needs_work)
+
+        if rating is None and not worked and not needs_work and not feedback_text:
+            return {}
+
+        return {
+            "rating": rating,
+            "strengths": worked,
+            "improvements": needs_work,
+            "feedback_text": feedback_text,
+        }
+
+    def _parse_rating_from_text(self, response: str) -> Optional[int]:
+        """Parse a 1-5 rating from text."""
+        patterns = [
+            r"\b(?:rating|overall|score)\s*[:\-]?\s*([1-5])\s*(?:/5|out of 5)?\b",
+            r"\b([1-5])\s*/\s*5\b",
+            r"\b([1-5])\s*out of\s*5\b",
+            r"\b([1-5])\s*stars?\b",
+        ]
+
+        for pattern in patterns:
+            match = re.search(pattern, response, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+
+        stars = re.findall(r"[⭐★]", response)
+        if 1 <= len(stars) <= 5:
+            return len(stars)
+
+        return None
+
+    def _extract_section_items(self, response: str, heading_patterns: list[str]) -> list[str]:
+        """Extract list items following a heading."""
+        lines = [line.strip() for line in response.splitlines()]
+        heading_regex = re.compile("|".join(heading_patterns), re.IGNORECASE)
+        stop_regex = re.compile(
+            r"(what worked|worked well|strengths?|positives?|liked|needs work|improvements?|issues?|weaknesses?)",
+            re.IGNORECASE,
+        )
+
+        for idx, line in enumerate(lines):
+            if not line:
+                continue
+            if heading_regex.search(line):
+                after_heading = line.split(":", 1)
+                if len(after_heading) > 1 and after_heading[1].strip():
+                    return self._split_list_items(after_heading[1])
+
+                collected = []
+                for next_line in lines[idx + 1:]:
+                    if not next_line:
+                        break
+                    if stop_regex.search(next_line):
+                        break
+                    if re.match(r"^[-*•\d]+\s*", next_line):
+                        collected.extend(self._split_list_items(next_line))
+                    else:
+                        collected.extend(self._split_list_items(next_line))
+                        break
+
+                return self._dedupe_items(collected)
+
+        return []
+
+    def _split_list_items(self, text: str) -> list[str]:
+        """Split a line into cleaned list items."""
+        cleaned = re.sub(r"^[-*•\d.]+\s*", "", text).strip()
+        if not cleaned:
+            return []
+        parts = re.split(r"[;,]\s*", cleaned)
+        return [item.strip() for item in parts if item.strip()]
+
+    def _dedupe_items(self, items: list[str]) -> list[str]:
+        """Deduplicate while preserving order."""
+        seen = set()
+        deduped = []
+        for item in items:
+            key = item.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped
+
+    def _infer_topic_feedback(self, response: str) -> tuple[list[str], list[str]]:
+        """Infer feedback signals from sentences mentioning key topics."""
+        positive_terms = [
+            "strong",
+            "great",
+            "good",
+            "effective",
+            "engaging",
+            "clear",
+            "accurate",
+            "compelling",
+        ]
+        negative_terms = [
+            "weak",
+            "needs work",
+            "unclear",
+            "confusing",
+            "inaccurate",
+            "missing",
+            "flat",
+        ]
+
+        topics = {
+            "hook": ["hook", "opening"],
+            "facts": ["facts", "accuracy", "claims"],
+            "tone": ["tone", "voice"],
+            "cta": ["cta", "call to action"],
+        }
+
+        worked = []
+        needs_work = []
+        sentences = re.split(r"[.!?\n]+", response)
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            if not sentence_lower.strip():
+                continue
+            for label, terms in topics.items():
+                if any(term in sentence_lower for term in terms):
+                    if any(term in sentence_lower for term in positive_terms):
+                        worked.append(label)
+                    if any(term in sentence_lower for term in negative_terms):
+                        needs_work.append(label)
+
+        return self._dedupe_items(worked), self._dedupe_items(needs_work)
+
+    def _extract_freeform_feedback(
+        self,
+        response: str,
+        rating: Optional[int],
+        worked: list[str],
+        needs_work: list[str],
+    ) -> Optional[str]:
+        """Extract remaining feedback text when structure is missing."""
+        if worked or needs_work:
+            return None
+        cleaned = response.strip()
+        if not cleaned:
+            return None
+        if rating is not None:
+            cleaned = re.sub(r"\b[1-5]\s*(?:/5|out of 5|stars?)\b", "", cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r"\b(?:rating|overall|score)\s*[:\-]?\s*[1-5]\b", "", cleaned, flags=re.IGNORECASE)
+        cleaned = cleaned.strip(" -:\n")
+        return cleaned if cleaned else None
+
+    def _has_minimum_feedback(self, summary: dict) -> bool:
+        """Check if feedback meets minimum completion signals."""
+        rating = summary.get("rating")
+        strengths = summary.get("strengths") or []
+        improvements = summary.get("improvements") or []
+        feedback_text = summary.get("feedback_text")
+
+        if rating is None:
+            return False
+
+        return bool(strengths or improvements or feedback_text)
+
+    def _update_feedback_from_summary(self, summary: dict) -> None:
+        """Update current feedback from a parsed summary."""
+        rating = summary.get("rating")
+        parsed_rating = rating if isinstance(rating, int) else self._parse_rating_from_text(str(rating))
+        if parsed_rating is None:
+            return
+
+        self._current_feedback = UserFeedback(
+            generation_id=self._pending_generation_id or "unknown",
+            rating=parsed_rating,
+            feedback_text=summary.get("feedback_text"),
+            what_worked=summary.get("strengths") or [],
+            what_needs_work=summary.get("improvements") or [],
+        )
 
     def collect_feedback(
         self,
@@ -410,6 +626,7 @@ class ReviewAgent(BaseAgent):
         Returns:
             AgentResponse with feedback questions
         """
+        self._pending_generation_id = generation_id
         feedback_request = f"""I'd like to collect your feedback on this content.
 
 **Generated Content:**
@@ -482,4 +699,5 @@ Extract actionable learnings that can improve future content generation."""
         """Clear session data."""
         self._current_feedback = None
         self._extracted_learnings = []
+        self._pending_generation_id = None
         self.clear_conversation()

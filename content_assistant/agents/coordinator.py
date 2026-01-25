@@ -13,12 +13,17 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional, Callable
-import json
 
 from content_assistant.agents.orchestrator import OrchestratorAgent, ContentBrief
 from content_assistant.agents.wellness_agent import WellnessAgent, VerificationResult
-from content_assistant.agents.storytelling_agent import StorytellingAgent, ContentPreview, GeneratedContent
+from content_assistant.agents.storytelling_agent import (
+    StorytellingAgent,
+    ContentPreview,
+    GeneratedContent,
+    ApprovalIntent,
+)
 from content_assistant.agents.review_agent import ReviewAgent, UserFeedback
+from content_assistant.agents.base_agent import AgentResponse
 
 
 class AgentStage(str, Enum):
@@ -81,6 +86,45 @@ class CoordinatorState:
         state.stage = AgentStage(data.get("stage", "orchestrator"))
         if data.get("brief"):
             state.brief = ContentBrief.from_dict(data["brief"])
+        if data.get("verification"):
+            verification_data = data["verification"]
+            state.verification = VerificationResult(
+                overall_score=verification_data.get("overall_score", 0.0),
+                verified_facts=verification_data.get("verified_facts", []),
+                unverified_claims=verification_data.get("unverified_claims", []),
+                corrections=verification_data.get("corrections", []),
+                supporting_knowledge=verification_data.get("supporting_knowledge", []),
+                recommendations=verification_data.get("recommendations", []),
+            )
+        if data.get("preview"):
+            preview_data = data["preview"]
+            state.preview = ContentPreview(
+                hook=preview_data.get("hook", ""),
+                hook_type=preview_data.get("hook_type", ""),
+                open_loops=preview_data.get("open_loops", []),
+                promise=preview_data.get("promise", ""),
+                brief_summary=preview_data.get("brief_summary", ""),
+            )
+        if data.get("content"):
+            content_data = data["content"]
+            content_preview = None
+            if content_data.get("preview"):
+                preview_data = content_data["preview"]
+                content_preview = ContentPreview(
+                    hook=preview_data.get("hook", ""),
+                    hook_type=preview_data.get("hook_type", ""),
+                    open_loops=preview_data.get("open_loops", []),
+                    promise=preview_data.get("promise", ""),
+                    brief_summary=preview_data.get("brief_summary", ""),
+                )
+            state.content = GeneratedContent(
+                content=content_data.get("content", ""),
+                word_count=content_data.get("word_count", 0),
+                hashtags=content_data.get("hashtags", []),
+                preview=content_preview,
+                variations=content_data.get("variations", []),
+                engagement_prediction=content_data.get("engagement_prediction", 0.0),
+            )
         state.conversation_id = data.get("conversation_id")
         state.user_id = data.get("user_id")
         state.generation_id = data.get("generation_id")
@@ -160,6 +204,52 @@ class AgentCoordinator:
         if self.on_stage_change:
             self.on_stage_change(new_stage)
 
+    def _resolve_next_stage(self, next_agent: Optional[str]) -> Optional[AgentStage]:
+        """Resolve next agent identifier into a known stage."""
+        if not next_agent:
+            return None
+
+        normalized = next_agent.strip().lower()
+        stage_map = {stage.value: stage for stage in AgentStage}
+        stage_aliases = {
+            "orchestrator": AgentStage.ORCHESTRATOR,
+            "wellness": AgentStage.WELLNESS,
+            "storytelling": AgentStage.STORYTELLING_PREVIEW,
+            "review": AgentStage.REVIEW,
+            "complete": AgentStage.COMPLETE,
+        }
+
+        return stage_map.get(normalized) or stage_aliases.get(normalized)
+
+    def _transition_from_response(
+        self,
+        response: AgentResponse,
+        fallback_stage: Optional[AgentStage] = None,
+    ) -> Optional[AgentStage]:
+        """Transition based on the agent's suggested next stage."""
+        next_stage = self._resolve_next_stage(response.next_agent)
+        if next_stage:
+            self._change_stage(next_stage)
+            return next_stage
+
+        if fallback_stage:
+            self._change_stage(fallback_stage)
+            return fallback_stage
+
+        return None
+
+    def _next_action_for_stage(self, stage: Optional[AgentStage]) -> str:
+        """Map a stage to a next_action string."""
+        action_map = {
+            AgentStage.ORCHESTRATOR: "continue_briefing",
+            AgentStage.WELLNESS: "verify_brief",
+            AgentStage.STORYTELLING_PREVIEW: "create_preview",
+            AgentStage.STORYTELLING_CONTENT: "generate_content",
+            AgentStage.REVIEW: "collect_feedback",
+            AgentStage.COMPLETE: "complete",
+        }
+        return action_map.get(stage, "continue")
+
     def process_message(self, message: str) -> dict:
         """Process a user message based on current stage.
 
@@ -204,21 +294,24 @@ class AgentCoordinator:
         if response.is_complete:
             # Brief is complete, move to wellness verification
             self.state.brief = self.orchestrator.get_current_brief()
+            next_stage = self._transition_from_response(
+                response,
+                fallback_stage=AgentStage.WELLNESS,
+            )
+            next_action = self._next_action_for_stage(next_stage)
 
             # Record handoff
             self.state.handoffs.append(AgentHandoff(
                 from_agent="orchestrator",
-                to_agent="wellness",
+                to_agent=response.next_agent or (next_stage.value if next_stage else "wellness"),
                 data=response.brief_data
             ))
-
-            self._change_stage(AgentStage.WELLNESS)
 
             return {
                 "response": response.content,
                 "stage": AgentStage.ORCHESTRATOR.value,
                 "stage_complete": True,
-                "next_action": "verify_brief",
+                "next_action": next_action,
                 "data": {
                     "brief": response.brief_data,
                     "message": "I've gathered all the information I need. Let me verify the facts before we create your content."
@@ -242,21 +335,24 @@ class AgentCoordinator:
 
             if response.is_complete:
                 self.state.verification = self.wellness.get_last_verification()
+                next_stage = self._transition_from_response(
+                    response,
+                    fallback_stage=AgentStage.STORYTELLING_PREVIEW,
+                )
+                next_action = self._next_action_for_stage(next_stage)
 
                 # Record handoff
                 self.state.handoffs.append(AgentHandoff(
                     from_agent="wellness",
-                    to_agent="storytelling",
+                    to_agent=response.next_agent or (next_stage.value if next_stage else "storytelling"),
                     data=response.brief_data
                 ))
-
-                self._change_stage(AgentStage.STORYTELLING_PREVIEW)
 
                 return {
                     "response": response.content,
                     "stage": AgentStage.WELLNESS.value,
                     "stage_complete": True,
-                    "next_action": "create_preview",
+                    "next_action": next_action,
                     "data": {
                         "verification": self.state.verification.to_dict() if self.state.verification else {},
                         "message": "Facts verified! Now let me create some hook options for your content."
@@ -265,12 +361,17 @@ class AgentCoordinator:
 
         # Continue wellness conversation if needed
         response = self.wellness.process_message_sync(message)
+        next_stage = self._transition_from_response(response)
 
         return {
             "response": response.content,
             "stage": AgentStage.WELLNESS.value,
             "stage_complete": response.is_complete,
-            "next_action": "verify_more" if not response.is_complete else "create_preview",
+            "next_action": (
+                self._next_action_for_stage(next_stage)
+                if next_stage
+                else ("verify_more" if not response.is_complete else "create_preview")
+            ),
             "data": {}
         }
 
@@ -303,13 +404,9 @@ class AgentCoordinator:
                 }
             }
 
-        # Check if user approved preview
-        approval_keywords = ["yes", "approve", "looks good", "love it", "perfect", "go ahead", "proceed"]
-        rejection_keywords = ["no", "different", "another", "try again", "change", "don't like"]
+        assessment = self.storytelling.interpret_approval_intent(message, self.state.preview)
 
-        message_lower = message.lower()
-
-        if any(kw in message_lower for kw in approval_keywords):
+        if assessment.intent == ApprovalIntent.APPROVE:
             # User approved, move to full content generation
             self._change_stage(AgentStage.STORYTELLING_CONTENT)
 
@@ -321,10 +418,19 @@ class AgentCoordinator:
                 "data": {}
             }
 
-        elif any(kw in message_lower for kw in rejection_keywords):
-            # User wants different preview
+        if assessment.intent in {ApprovalIntent.APPROVE_WITH_CHANGES, ApprovalIntent.REJECT}:
+            # User wants revisions or a different preview
             brief_dict = self.state.brief.to_dict() if self.state.brief else {}
-            response = self.storytelling.regenerate_hook(brief_dict)
+            verified_facts = []
+            if self.state.verification:
+                verified_facts = self.state.verification.verified_facts
+
+            response = self.storytelling.regenerate_preview_with_feedback(
+                brief_dict,
+                verified_facts,
+                message,
+                self.state.preview,
+            )
             self.state.preview = self.storytelling.get_current_preview()
 
             return {
@@ -336,18 +442,30 @@ class AgentCoordinator:
                     "preview": {
                         "hook": self.state.preview.hook if self.state.preview else "",
                         "hook_type": self.state.preview.hook_type if self.state.preview else "",
+                        "open_loops": self.state.preview.open_loops if self.state.preview else [],
+                        "promise": self.state.preview.promise if self.state.preview else "",
                     }
                 }
             }
 
+        if assessment.intent == ApprovalIntent.UNCLEAR:
+            return {
+                "response": "Would you like to approve this preview as-is, or should I adjust anything?",
+                "stage": AgentStage.STORYTELLING_PREVIEW.value,
+                "stage_complete": False,
+                "next_action": "approve_preview",
+                "data": {}
+            }
+
         # Continue conversation
         response = self.storytelling.process_message_sync(message)
+        next_stage = self._transition_from_response(response)
 
         return {
             "response": response.content,
             "stage": AgentStage.STORYTELLING_PREVIEW.value,
             "stage_complete": False,
-            "next_action": "approve_preview",
+            "next_action": self._next_action_for_stage(next_stage) if next_stage else "approve_preview",
             "data": {}
         }
 
@@ -367,21 +485,24 @@ class AgentCoordinator:
             )
 
             self.state.content = self.storytelling.get_current_content()
+            next_stage = self._transition_from_response(
+                response,
+                fallback_stage=AgentStage.REVIEW,
+            )
+            next_action = self._next_action_for_stage(next_stage)
 
             # Record handoff
             self.state.handoffs.append(AgentHandoff(
                 from_agent="storytelling",
-                to_agent="review",
+                to_agent=response.next_agent or (next_stage.value if next_stage else "review"),
                 data={"content": self.state.content.content if self.state.content else ""}
             ))
-
-            self._change_stage(AgentStage.REVIEW)
 
             return {
                 "response": response.content,
                 "stage": AgentStage.STORYTELLING_CONTENT.value,
                 "stage_complete": True,
-                "next_action": "collect_feedback",
+                "next_action": next_action,
                 "data": {
                     "content": self.state.content.to_dict() if self.state.content else {},
                     "message": "Here's your content! I'd love to get your feedback to help improve future generations."
@@ -398,22 +519,42 @@ class AgentCoordinator:
 
     def _process_review(self, message: str) -> dict:
         """Process review/feedback stage."""
+        if not self.state.feedback and not self.review.get_current_feedback():
+            generation_id = self.state.generation_id or "unsaved_generation"
+            content = self.state.content.content if self.state.content else ""
+            brief = self.state.brief.to_dict() if self.state.brief else {}
+            response = self.review.collect_feedback(generation_id, content, brief)
+
+            return {
+                "response": response.content,
+                "stage": AgentStage.REVIEW.value,
+                "stage_complete": False,
+                "next_action": "continue_feedback",
+                "data": {}
+            }
+
         # Collect feedback
         response = self.review.process_message_sync(message)
+        next_stage = self._transition_from_response(
+            response,
+            fallback_stage=AgentStage.COMPLETE if response.is_complete else None,
+        )
 
         # Check if feedback is complete
         if response.is_complete:
             self.state.feedback = self.review.get_current_feedback()
-            self._change_stage(AgentStage.COMPLETE)
 
             return {
                 "response": response.content,
                 "stage": AgentStage.REVIEW.value,
                 "stage_complete": True,
-                "next_action": "complete",
+                "next_action": self._next_action_for_stage(next_stage or AgentStage.COMPLETE),
                 "data": {
                     "feedback": self.state.feedback.to_dict() if self.state.feedback else {},
-                    "learnings": [l.to_dict() for l in self.review.get_extracted_learnings()],
+                    "learnings": [
+                        learning.to_dict()
+                        for learning in self.review.get_extracted_learnings()
+                    ],
                     "message": "Thank you for your feedback! This helps us improve."
                 }
             }
@@ -422,7 +563,7 @@ class AgentCoordinator:
             "response": response.content,
             "stage": AgentStage.REVIEW.value,
             "stage_complete": False,
-            "next_action": "continue_feedback",
+            "next_action": self._next_action_for_stage(next_stage) if next_stage else "continue_feedback",
             "data": {}
         }
 

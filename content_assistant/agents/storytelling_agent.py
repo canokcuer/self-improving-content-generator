@@ -11,6 +11,7 @@ The Storytelling Agent is responsible for:
 import json
 import re
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional
 
 from content_assistant.agents.base_agent import BaseAgent, AgentTool, AgentResponse
@@ -52,6 +53,22 @@ class GeneratedContent:
             "variations": self.variations,
             "engagement_prediction": self.engagement_prediction,
         }
+
+
+class ApprovalIntent(str, Enum):
+    """Classification for user approval intent."""
+    APPROVE = "approve"
+    APPROVE_WITH_CHANGES = "approve_with_changes"
+    REJECT = "reject"
+    UNCLEAR = "unclear"
+
+
+@dataclass
+class ApprovalAssessment:
+    """Assessment of user approval intent."""
+    intent: ApprovalIntent
+    rationale: str = ""
+    requested_changes: list = field(default_factory=list)
 
 
 STORYTELLING_SYSTEM_PROMPT = """You are the Storytelling Agent for TheLifeCo Content Assistant. You are a master content creator who specializes in creating engaging, high-converting wellness content.
@@ -292,7 +309,12 @@ class StorytellingAgent(BaseAgent):
         if topic:
             query += f" {topic}"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No hook patterns found. Using default patterns."
@@ -308,7 +330,8 @@ class StorytellingAgent(BaseAgent):
         results = search_knowledge(
             f"{platform} content rules guidelines best practices",
             top_k=3,
-            threshold=0.4
+            threshold=0.4,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -326,7 +349,12 @@ class StorytellingAgent(BaseAgent):
         if tactic_type:
             query = f"{tactic_type} engagement tactics"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No specific tactics found. Using general engagement principles."
@@ -347,7 +375,12 @@ class StorytellingAgent(BaseAgent):
         if platform:
             query += f" {platform}"
 
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return f"No specific CTAs found for {funnel_stage}. Using general templates."
@@ -371,7 +404,12 @@ class StorytellingAgent(BaseAgent):
         if platform:
             query += f" {platform}"
 
-        results = search_knowledge(query, top_k=count, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=count,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No similar examples found. Creating fresh content."
@@ -553,6 +591,114 @@ Return in JSON format with full_text, word_count, hashtags, and engagement_predi
 
         return self.process_message_sync(content_request)
 
+    def interpret_approval_intent(
+        self,
+        message: str,
+        preview: Optional[ContentPreview] = None
+    ) -> ApprovalAssessment:
+        """Interpret whether the user approves the preview or wants changes."""
+        message_lower = message.lower()
+
+        approval_keywords = [
+            "yes",
+            "approve",
+            "looks good",
+            "love it",
+            "perfect",
+            "go ahead",
+            "proceed",
+            "ship it",
+            "approved",
+        ]
+        rejection_keywords = [
+            "no",
+            "different",
+            "another",
+            "try again",
+            "change",
+            "don't like",
+            "redo",
+            "not this",
+            "scrap",
+        ]
+        change_keywords = [
+            "but",
+            "however",
+            "except",
+            "only if",
+            "could you",
+            "can you",
+            "please",
+            "tweak",
+            "adjust",
+            "modify",
+            "edit",
+            "swap",
+            "revise",
+            "shorter",
+            "longer",
+        ]
+
+        has_approve = any(keyword in message_lower for keyword in approval_keywords)
+        has_reject = any(keyword in message_lower for keyword in rejection_keywords)
+        has_change = any(keyword in message_lower for keyword in change_keywords)
+
+        if has_approve and has_change and not has_reject:
+            return ApprovalAssessment(intent=ApprovalIntent.APPROVE_WITH_CHANGES)
+
+        if has_reject and not has_approve:
+            return ApprovalAssessment(intent=ApprovalIntent.REJECT)
+
+        if has_approve and not has_reject:
+            return ApprovalAssessment(intent=ApprovalIntent.APPROVE)
+
+        model_assessment = self._classify_approval_with_model(message, preview)
+        if model_assessment:
+            return model_assessment
+
+        return ApprovalAssessment(intent=ApprovalIntent.UNCLEAR)
+
+    def regenerate_preview_with_feedback(
+        self,
+        brief: dict,
+        verified_facts: list,
+        feedback: str,
+        current_preview: Optional[ContentPreview] = None
+    ) -> AgentResponse:
+        """Regenerate preview based on user feedback."""
+        facts_str = "\n".join(f"- {fact}" for fact in verified_facts[:5])
+        preview_summary = ""
+        if current_preview:
+            preview_summary = (
+                f"Current Hook: {current_preview.hook}\n"
+                f"Hook Type: {current_preview.hook_type}\n"
+                f"Open Loops: {', '.join(current_preview.open_loops)}\n"
+                f"Promise: {current_preview.promise}\n"
+            )
+
+        preview_request = f"""Revise the content preview based on the user's feedback.
+
+**Brief Overview:**
+- Core Message: {brief.get('core_message', 'Not specified')}
+- Target Audience: {brief.get('target_audience', 'Not specified')}
+- Platform: {brief.get('platform', 'Not specified')}
+- Funnel Stage: {brief.get('funnel_stage', 'Not specified')}
+- Tone: {brief.get('tone', 'warm and professional')}
+
+**Current Preview:**
+{preview_summary if preview_summary else "No current preview available."}
+
+**User Feedback:**
+{feedback}
+
+**Verified Facts to Use:**
+{facts_str if facts_str else "No specific facts provided"}
+
+Update the preview, keeping any elements the user liked and adjusting only what they requested.
+Return in JSON format."""
+
+        return self.process_message_sync(preview_request)
+
     def get_current_preview(self) -> Optional[ContentPreview]:
         """Get the current content preview."""
         return self._current_preview
@@ -585,3 +731,78 @@ Previous hook (to avoid): {self._current_preview.hook if self._current_preview e
 Provide 3 different hooks with their types, ranked by predicted engagement."""
 
         return self.process_message_sync(hook_request)
+
+    def _classify_approval_with_model(
+        self,
+        message: str,
+        preview: Optional[ContentPreview] = None
+    ) -> Optional[ApprovalAssessment]:
+        """Use the model to classify approval intent when unclear."""
+        preview_context = ""
+        if preview:
+            preview_context = (
+                f"Hook: {preview.hook}\n"
+                f"Hook Type: {preview.hook_type}\n"
+                f"Open Loops: {', '.join(preview.open_loops)}\n"
+                f"Promise: {preview.promise}\n"
+            )
+
+        prompt = f"""Classify the user's response to the content preview.
+
+Preview:
+{preview_context if preview_context else "No preview context."}
+
+User message:
+{message}
+
+Return JSON with:
+- intent: approve | approve_with_changes | reject | unclear
+- requested_changes: list of specific changes (if any)
+- rationale: brief explanation
+
+Example:
+```json
+{{"intent":"approve_with_changes","requested_changes":["shorter hook","more urgency"],"rationale":"User likes it but wants tweaks"}}
+```
+"""
+
+        response = self.process_message_sync(prompt)
+        return self._parse_approval_response(response.content)
+
+    def _parse_approval_response(self, response: str) -> Optional[ApprovalAssessment]:
+        """Parse approval intent from model response."""
+        json_matches = re.findall(r"```json\s*(.*?)\s*```", response, re.DOTALL)
+        candidates = json_matches[:]
+        if not candidates:
+            fallback_match = re.search(r"\{.*\}", response, re.DOTALL)
+            if fallback_match:
+                candidates.append(fallback_match.group(0))
+
+        for candidate in candidates:
+            try:
+                parsed = json.loads(candidate)
+            except json.JSONDecodeError:
+                continue
+
+            intent_value = parsed.get("intent")
+            if not intent_value:
+                continue
+
+            try:
+                intent = ApprovalIntent(intent_value)
+            except ValueError:
+                intent = ApprovalIntent.UNCLEAR
+
+            requested_changes = parsed.get("requested_changes") or []
+            if isinstance(requested_changes, str):
+                requested_changes = [requested_changes]
+            if not isinstance(requested_changes, list):
+                requested_changes = []
+
+            return ApprovalAssessment(
+                intent=intent,
+                rationale=parsed.get("rationale", ""),
+                requested_changes=requested_changes,
+            )
+
+        return None

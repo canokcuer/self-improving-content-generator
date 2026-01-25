@@ -10,10 +10,10 @@ The Orchestrator Agent is responsible for:
 
 import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
-from content_assistant.agents.base_agent import BaseAgent, AgentTool, AgentResponse
+from content_assistant.agents.base_agent import BaseAgent, AgentTool
 from content_assistant.rag.knowledge_base import search_knowledge
 
 
@@ -29,15 +29,23 @@ class ContentBrief:
 
     # Important
     pain_point: Optional[str] = None
+    pain_area: Optional[str] = None
+    compliance_level: Optional[str] = None  # high or low
+    value_proposition: Optional[str] = None
+    desired_action: Optional[str] = None
+    key_messages: list[str] = field(default_factory=list)
     transformation: Optional[str] = None
     content_type: Optional[str] = None  # post, story, carousel, reel, article, etc.
     tone: Optional[str] = None
 
     # Optional
     specific_program: Optional[str] = None
+    specific_programs: list[str] = field(default_factory=list)
+    specific_centers: list[str] = field(default_factory=list)
     evidence_or_story: Optional[str] = None
     cta: Optional[str] = None
     constraints: Optional[str] = None
+    price_point: Optional[str] = None
 
     # Campaign-specific (for conversion stage)
     has_campaign: bool = False
@@ -48,12 +56,33 @@ class ContentBrief:
 
     def is_complete(self) -> bool:
         """Check if brief has minimum required information."""
-        return all([
+        base_complete = all([
             self.core_message,
             self.target_audience,
             self.platform,
-            self.funnel_stage
+            self.funnel_stage,
+            self.pain_area or self.pain_point,
+            self.compliance_level,
+            self.value_proposition,
+            self.desired_action or self.cta,
+            self.key_messages,
+            self.constraints,
+            self.price_point,
+            self.specific_programs or self.specific_program,
+            self.specific_centers,
+            self.tone,
         ])
+        if not base_complete:
+            return False
+        if self.funnel_stage == "conversion":
+            return all([
+                self.has_campaign,
+                self.campaign_price,
+                self.campaign_duration,
+                self.campaign_center,
+                self.campaign_deadline,
+            ])
+        return True
 
     def to_dict(self) -> dict:
         """Convert to dictionary."""
@@ -63,13 +92,21 @@ class ContentBrief:
             "platform": self.platform,
             "funnel_stage": self.funnel_stage,
             "pain_point": self.pain_point,
+            "pain_area": self.pain_area,
+            "compliance_level": self.compliance_level,
+            "value_proposition": self.value_proposition,
+            "desired_action": self.desired_action,
+            "key_messages": self.key_messages,
             "transformation": self.transformation,
             "content_type": self.content_type,
             "tone": self.tone,
             "specific_program": self.specific_program,
+            "specific_programs": self.specific_programs,
+            "specific_centers": self.specific_centers,
             "evidence_or_story": self.evidence_or_story,
             "cta": self.cta,
             "constraints": self.constraints,
+            "price_point": self.price_point,
             "has_campaign": self.has_campaign,
             "campaign_price": self.campaign_price,
             "campaign_duration": self.campaign_duration,
@@ -103,14 +140,23 @@ ORCHESTRATOR_SYSTEM_PROMPT = """You are the Orchestrator Agent for TheLifeCo Con
 Essential (must have before proceeding):
 - Core message / what the content is about
 - Target audience
+- Pain area being addressed
+- Compliance level (high/low)
+- Funnel stage / goal (awareness, consideration, conversion, loyalty)
+- Value proposition
+- Desired action
+- Key messages (bullet list or short list)
+- Constraints / things to avoid
 - Platform (Instagram, LinkedIn, Email, Blog, etc.)
-- Goal / funnel stage
+- Price point
+- Specific program(s)
+- Specific center(s)
+- Tone (professional, casual, inspirational, etc.)
 
-Important (should clarify):
-- Pain point being addressed
+Additional context to clarify when helpful:
 - Desired transformation
 - Content type (post, story, carousel, etc.)
-- Tone (professional, casual, inspirational, etc.)
+- Evidence or story to support the message
 
 For Conversion Content (ask if funnel stage is conversion):
 - Is there a specific campaign/promotion?
@@ -119,6 +165,10 @@ For Conversion Content (ask if funnel stage is conversion):
 - Which center(s)?
 - Any deadline/limited availability?
 
+Before marking a brief complete, confirm all required fields are present. If the funnel stage is
+conversion and any campaign fields are missing (campaign flag, price, duration, center, deadline),
+explicitly call out what is missing and continue the conversation without setting brief_complete.
+
 ## Funnel Stage Detection
 - **Awareness**: Educating new audiences, no specific offer, soft CTAs
 - **Consideration**: Helping people decide, comparing options, building trust
@@ -126,7 +176,7 @@ For Conversion Content (ask if funnel stage is conversion):
 - **Loyalty**: Engaging past guests, referrals, community
 
 ## Response Format
-When you have gathered enough information, include a JSON block in your response:
+When you have gathered enough information, include a JSON block in your response. Only set `brief_complete` to true when all Essential fields are collected.
 
 ```json
 {
@@ -253,7 +303,12 @@ class OrchestratorAgent(BaseAgent):
             query += f" for {funnel_stage} stage"
 
         # Search knowledge base for relevant patterns
-        results = search_knowledge(query, top_k=3, threshold=0.4)
+        results = search_knowledge(
+            query,
+            top_k=3,
+            threshold=0.4,
+            sources=self.knowledge_sources,
+        )
 
         if not results:
             return "No similar content examples found. I'll create fresh content based on best practices."
@@ -271,7 +326,8 @@ class OrchestratorAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {program_name} program details benefits",
             top_k=3,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:
@@ -289,7 +345,8 @@ class OrchestratorAgent(BaseAgent):
         results = search_knowledge(
             f"TheLifeCo {center_name} center location facilities",
             top_k=3,
-            threshold=0.5
+            threshold=0.5,
+            sources=self.knowledge_sources,
         )
 
         if not results:
