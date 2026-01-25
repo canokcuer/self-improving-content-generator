@@ -90,8 +90,14 @@ class Conversation:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Conversation":
+        raw_messages = data.get("messages") or []
+        if isinstance(raw_messages, dict):
+            raw_messages = [raw_messages]
+        elif not isinstance(raw_messages, list):
+            raw_messages = []
+
         messages = []
-        for m in data.get("messages", []):
+        for m in raw_messages:
             if isinstance(m, dict):
                 messages.append(ConversationMessage.from_dict(m))
             else:
@@ -238,7 +244,10 @@ def update_conversation(conversation: Conversation) -> Conversation:
 
         data = conversation.to_dict()
         # Convert messages to JSON-serializable format
-        data["messages"] = [m.to_dict() if isinstance(m, ConversationMessage) else m for m in conversation.messages]
+        data["messages"] = [
+            m.to_dict() if isinstance(m, ConversationMessage) else m
+            for m in (conversation.messages or [])
+        ]
 
         result = client.table("conversations")\
             .update(data)\
