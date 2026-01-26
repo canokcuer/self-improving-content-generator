@@ -5,7 +5,7 @@
 
 ---
 
-## Current Architecture: EPA-GONCA-CAN
+## Current Architecture: EPA-GONCA-ALP
 
 The system now uses a **true orchestrator pattern** where EPA is the main agent that coordinates sub-agents as tools.
 
@@ -29,11 +29,11 @@ The system now uses a **true orchestrator pattern** where EPA is the main agent 
 │  • Routes feedback to appropriate sub-agent                 │
 └────────┬──────────────────────┬──────────────────┬─────────┘
          │                      │                  │
-    [consult_gonca]        [consult_can]    [analyze_feedback]
+    [consult_gonca]        [consult_alp]    [analyze_feedback]
          │                      │                  │
          ▼                      ▼                  ▼
 ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
-│     GONCA      │   │      CAN       │   │     Review     │
+│     GONCA      │   │      ALP       │   │     Review     │
 │   Opus 4.5     │   │   Opus 4.5     │   │   Opus 4.5     │
 │  temp=0.3      │   │  temp=0.8      │   │  temp=0.3      │
 │                │   │                │   │                │
@@ -80,7 +80,7 @@ The system now uses a **true orchestrator pattern** where EPA is the main agent 
 **After:**
 - **Orchestrator Agent (EPA):** Conversational briefing, funnel detection
 - **Wellness Agent (GONCA):** Fact verification against knowledge base
-- **Storytelling Agent (CAN):** Content creation with engagement optimization
+- **Storytelling Agent (ALP):** Content creation with engagement optimization
 - **Review Agent:** Feedback collection, learning extraction
 
 ---
@@ -126,7 +126,7 @@ User ←→ EPA
         │
         ├── [consult_gonca] → GONCA (returns wellness facts)
         │
-        ├── [consult_can] → CAN (returns content with FULL context)
+        ├── [consult_alp] → ALP (returns content with FULL context)
         │
         └── [analyze_feedback] → Review (routes feedback)
 ```
@@ -134,7 +134,7 @@ User ←→ EPA
 **Benefits:**
 - EPA maintains full conversation context
 - Sub-agents are tools, not stages
-- CAN receives COMPLETE brief + wellness facts
+- ALP receives COMPLETE brief + wellness facts
 - EPA reviews everything before user sees it
 - No source filtering - full knowledge access
 
@@ -169,7 +169,7 @@ For **Conversion** funnel stage, also collect:
 - `ContentBrief` - All 13 required fields + validation
 - `EPAState`, `EPAStage` - State management
 - `WellnessRequest`, `WellnessResponse` - GONCA communication
-- `StorytellingRequest`, `StorytellingResponse` - CAN communication
+- `StorytellingRequest`, `StorytellingResponse` - ALP communication
 - `FeedbackRequest`, `FeedbackAnalysis` - Review communication
 
 ### New Agents
@@ -177,8 +177,8 @@ For **Conversion** funnel stage, also collect:
 |------|---------|
 | `epa_agent.py` | Main orchestrator - Socratic questioning, sub-agent coordination |
 | `gonca_agent.py` | Wellness sub-agent - TheLifeCo knowledge, fact verification |
-| `can_agent.py` | Storytelling sub-agent - Content creation with FULL context |
-| `review_subagent.py` | Feedback analyzer - Routes to GONCA or CAN |
+| `alp_agent.py` | Storytelling sub-agent - Content creation with FULL context |
+| `review_subagent.py` | Feedback analyzer - Routes to GONCA or ALP |
 | `subagent_base.py` | Base class for sub-agents |
 
 ### Updated Files
@@ -206,7 +206,7 @@ All agents use **Claude Opus 4.5** (`claude-opus-4-5-20251101`):
 |-------|-------------|---------|
 | EPA | 0.7 | Balanced for conversation |
 | GONCA | 0.3 | Lower for factual accuracy |
-| CAN | 0.8 | Higher for creativity |
+| ALP | 0.8 | Higher for creativity |
 | Review | 0.3 | Lower for analytical work |
 
 ---
@@ -226,7 +226,7 @@ All agents use **Claude Opus 4.5** (`claude-opus-4-5-20251101`):
    - Request: WellnessRequest with query + brief context
    - Response: WellnessResponse with verified facts, program details, compliance guidance
 
-4. **EPA → CAN** (via `consult_can` tool):
+4. **EPA → ALP** (via `consult_alp` tool):
    - Request: StorytellingRequest with FULL CONTEXT:
      - Complete brief (all 13 fields)
      - Wellness facts from GONCA
@@ -235,7 +235,7 @@ All agents use **Claude Opus 4.5** (`claude-opus-4-5-20251101`):
      - Conversation context
    - Response: StorytellingResponse with hook, content, CTA, hashtags
 
-5. **EPA Review**: EPA reviews CAN's content, makes adjustments if needed
+5. **EPA Review**: EPA reviews ALP's content, makes adjustments if needed
 
 6. **EPA → User**: Final content presented
 
@@ -246,8 +246,8 @@ All agents use **Claude Opus 4.5** (`claude-opus-4-5-20251101`):
 3. **Review returns**: FeedbackAnalysis with feedback_type and suggested_action
 4. **EPA routes**:
    - "wellness" → Consult GONCA again
-   - "storytelling" → Consult CAN again with feedback
-   - "both" → GONCA then CAN
+   - "storytelling" → Consult ALP again with feedback
+   - "both" → GONCA then ALP
    - "approved" → Finalize
 
 ---
@@ -260,7 +260,7 @@ The following files are kept for backward compatibility but are not used:
 |------|--------|
 | `orchestrator.py` | Deprecated - replaced by `epa_agent.py` |
 | `wellness_agent.py` | Deprecated - replaced by `gonca_agent.py` |
-| `storytelling_agent.py` | Deprecated - replaced by `can_agent.py` |
+| `storytelling_agent.py` | Deprecated - replaced by `alp_agent.py` |
 | `review_agent.py` | Deprecated - replaced by `review_subagent.py` |
 | `coordinator.py` | Deprecated - EPA handles coordination |
 | `create_mode.py` | Deprecated - replaced by `epa_create_mode.py` |
@@ -287,18 +287,18 @@ python scripts/test_epa_architecture.py --test full  # Requires API keys
 ### Verify Models
 
 ```python
-from content_assistant.agents import EPAAgent, GONCAAgent, CANAgent
+from content_assistant.agents import EPAAgent, GONCAAgent, ALPAgent
 from content_assistant.agents.review_subagent import ReviewSubAgent
 
 epa = EPAAgent()
 gonca = GONCAAgent()
-can = CANAgent()
+can = ALPAgent()
 review = ReviewSubAgent()
 
 # All should be claude-opus-4-5-20251101
 print(f"EPA: {epa.model}")
 print(f"GONCA: {gonca.model}")
-print(f"CAN: {can.model}")
+print(f"ALP: {can.model}")
 print(f"Review: {review.model}")
 ```
 

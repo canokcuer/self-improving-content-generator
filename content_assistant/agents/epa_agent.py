@@ -3,13 +3,13 @@
 EPA (Epa) is the main orchestrator agent that:
 1. Interacts directly with users through Socratic questioning
 2. Collects ALL 13 required brief fields before content generation
-3. Coordinates sub-agents (GONCA for wellness, CAN for storytelling)
+3. Coordinates sub-agents (GONCA for wellness, ALP for storytelling)
 4. Reviews ALL sub-agent output before presenting to user
 5. Has FULL ACCESS to knowledge base (no source filtering)
 
 Sub-agent invocation pattern:
 - EPA calls GONCA when it needs TheLifeCo knowledge/facts
-- EPA calls CAN when it needs content created (with FULL context)
+- EPA calls ALP when it needs content created (with FULL context)
 - EPA calls Review when analyzing user feedback
 - EPA reviews and potentially adjusts all sub-agent output
 
@@ -52,7 +52,7 @@ You are an expert content strategist who deeply understands wellness marketing a
 You are the ONLY agent that talks directly to users. You:
 1. Conduct Socratic conversations to understand content needs deeply
 2. Collect ALL 13 required brief fields before generating content
-3. Coordinate with sub-agents (GONCA for wellness facts, CAN for storytelling)
+3. Coordinate with sub-agents (GONCA for wellness facts, ALP for storytelling)
 4. Review ALL sub-agent output before showing to users
 5. Make final adjustments to ensure quality and alignment
 
@@ -86,7 +86,7 @@ For CONVERSION funnel stage, also collect:
 You have tools to:
 - search_knowledge: Search ALL TheLifeCo knowledge (you have full access)
 - consult_gonca: Ask GONCA for verified wellness facts and TheLifeCo info
-- consult_can: Ask CAN to create content (only when brief is complete!)
+- consult_alp: Ask ALP to create content (only when brief is complete!)
 - analyze_feedback: Analyze user feedback on generated content
 
 ## Response Format for Brief Collection
@@ -124,7 +124,7 @@ class EPAAgent(BaseAgent):
 
     Coordinates the entire content generation workflow:
     1. Socratic briefing with users
-    2. Sub-agent coordination (GONCA, CAN, Review)
+    2. Sub-agent coordination (GONCA, ALP, Review)
     3. Quality review before user delivery
     """
 
@@ -150,7 +150,7 @@ class EPAAgent(BaseAgent):
 
         self._state = EPAState()
         self._gonca_agent = None  # Lazy loaded
-        self._can_agent = None    # Lazy loaded
+        self._alp_agent = None    # Lazy loaded
         self._review_agent = None # Lazy loaded
 
     # =========================================================================
@@ -212,20 +212,20 @@ Use this BEFORE content generation to gather accurate facts.""",
             handler=self._handle_consult_gonca
         ))
 
-        # Tool: Consult CAN (Storytelling Sub-agent)
+        # Tool: Consult ALP (Storytelling Sub-agent)
         self.register_tool(AgentTool(
-            name="consult_can",
-            description="""Consult CAN, the storytelling expert sub-agent, to create content.
+            name="consult_alp",
+            description="""Consult ALP, the storytelling expert sub-agent, to create content.
 IMPORTANT: Only call this AFTER:
 1. Brief is complete (all 13 fields collected)
 2. GONCA has provided wellness facts
-CAN receives FULL context to create the best content.""",
+ALP receives FULL context to create the best content.""",
             input_schema={
                 "type": "object",
                 "properties": {
                     "style_guidance": {
                         "type": "string",
-                        "description": "Specific style or storytelling guidance for CAN"
+                        "description": "Specific style or storytelling guidance for ALP"
                     },
                     "previous_feedback": {
                         "type": "string",
@@ -234,7 +234,7 @@ CAN receives FULL context to create the best content.""",
                 },
                 "required": []
             },
-            handler=self._handle_consult_can
+            handler=self._handle_consult_alp
         ))
 
         # Tool: Analyze Feedback
@@ -331,12 +331,12 @@ CAN receives FULL context to create the best content.""",
 
         return "\n".join(result_parts)
 
-    def _handle_consult_can(
+    def _handle_consult_alp(
         self,
         style_guidance: Optional[str] = None,
         previous_feedback: Optional[str] = None
     ) -> str:
-        """Handle consultation with CAN sub-agent."""
+        """Handle consultation with ALP sub-agent."""
         # Verify brief is complete
         if not self._state.brief.is_complete():
             missing = self._state.brief.get_missing_fields()
@@ -347,10 +347,10 @@ CAN receives FULL context to create the best content.""",
             return "ERROR: Must consult GONCA first to gather wellness facts before content generation."
 
         # Update state
-        self._state.stage = EPAStage.CONSULTING_CAN
+        self._state.stage = EPAStage.CONSULTING_ALP
         self._state.iteration_count += 1
 
-        # Build request for CAN with FULL context
+        # Build request for ALP with FULL context
         request = StorytellingRequest(
             brief=self._state.brief,
             wellness_facts=self._state.wellness_response,
@@ -361,11 +361,11 @@ CAN receives FULL context to create the best content.""",
             iteration_number=self._state.iteration_count
         )
 
-        # Get CAN agent (lazy load)
-        can = self._get_can_agent()
+        # Get ALP agent (lazy load)
+        alp = self._get_alp_agent()
 
-        # Invoke CAN
-        response = can.process_request(request)
+        # Invoke ALP
+        response = alp.process_request(request)
 
         # Store response
         self._state.storytelling_response = response
@@ -373,7 +373,7 @@ CAN receives FULL context to create the best content.""",
 
         # Format response for EPA to review
         result_parts = [
-            "## CAN's Content Draft",
+            "## ALP's Content Draft",
             "",
             f"**Hook Type:** {response.hook_type}",
             f"**Framework:** {response.storytelling_framework}",
@@ -403,7 +403,7 @@ CAN receives FULL context to create the best content.""",
                 result_parts.append(f"{i}. {hook}")
 
         result_parts.append(f"\n**Stats:** {response.word_count} words, {response.character_count} characters")
-        result_parts.append(f"**CAN's Notes:** {response.confidence_notes}")
+        result_parts.append(f"**ALP's Notes:** {response.confidence_notes}")
 
         return "\n".join(result_parts)
 
@@ -450,7 +450,7 @@ CAN receives FULL context to create the best content.""",
                 result_parts.append(f"- {issue}")
 
         if analysis.storytelling_issues:
-            result_parts.append("\n### Storytelling Issues (call CAN)")
+            result_parts.append("\n### Storytelling Issues (call ALP)")
             for issue in analysis.storytelling_issues:
                 result_parts.append(f"- {issue}")
 
@@ -472,12 +472,12 @@ CAN receives FULL context to create the best content.""",
             self._gonca_agent = GONCAAgent(model=self.model)
         return self._gonca_agent
 
-    def _get_can_agent(self):
-        """Lazy load CAN agent."""
-        if self._can_agent is None:
-            from content_assistant.agents.can_agent import CANAgent
-            self._can_agent = CANAgent(model=self.model)
-        return self._can_agent
+    def _get_alp_agent(self):
+        """Lazy load ALP agent."""
+        if self._alp_agent is None:
+            from content_assistant.agents.alp_agent import ALPAgent
+            self._alp_agent = ALPAgent(model=self.model)
+        return self._alp_agent
 
     def _get_review_agent(self):
         """Lazy load Review agent."""
@@ -636,7 +636,7 @@ CAN receives FULL context to create the best content.""",
         stage_names = {
             EPAStage.BRIEFING: "Understanding your needs",
             EPAStage.CONSULTING_GONCA: "Consulting wellness expert (GONCA)",
-            EPAStage.CONSULTING_CAN: "Creating content (CAN)",
+            EPAStage.CONSULTING_ALP: "Creating content (ALP)",
             EPAStage.REVIEWING: "Reviewing content",
             EPAStage.PRESENTING: "Presenting content",
             EPAStage.COLLECTING_FEEDBACK: "Processing your feedback",

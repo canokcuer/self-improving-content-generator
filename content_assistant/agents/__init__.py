@@ -2,11 +2,11 @@
 
 This module contains the agentic architecture for content generation.
 
-NEW ARCHITECTURE (EPA-GONCA-CAN):
+NEW ARCHITECTURE (EPA-GONCA-ALP):
 - EPA Agent: Main orchestrator that interacts with users, collects briefs,
              coordinates sub-agents, and reviews all output
 - GONCA Agent: Wellness expert sub-agent for TheLifeCo knowledge
-- CAN Agent: Storytelling expert sub-agent for content creation
+- ALP Agent: Storytelling expert sub-agent for content creation
 - Review Sub-Agent: Feedback analyzer for routing revisions
 
 LEGACY ARCHITECTURE (deprecated, kept for backward compatibility):
@@ -40,7 +40,7 @@ from content_assistant.agents.types import (
 # NEW: EPA Architecture agents
 from content_assistant.agents.epa_agent import EPAAgent
 from content_assistant.agents.gonca_agent import GONCAAgent
-from content_assistant.agents.can_agent import CANAgent
+from content_assistant.agents.alp_agent import ALPAgent
 from content_assistant.agents.review_subagent import ReviewSubAgent
 
 # LEGACY: Old architecture (deprecated)
@@ -78,7 +78,7 @@ __all__ = [
     # NEW: EPA Architecture agents
     "EPAAgent",
     "GONCAAgent",
-    "CANAgent",
+    "ALPAgent",
     "ReviewSubAgent",
 
     # LEGACY: Old architecture (deprecated)

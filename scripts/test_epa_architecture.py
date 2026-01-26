@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Test script for EPA-GONCA-CAN architecture.
+"""Test script for EPA-GONCA-ALP architecture.
 
 This script tests the new agent architecture:
 1. EPA Socratic questioning for brief collection
 2. GONCA wellness fact gathering
-3. CAN content creation
+3. ALP content creation
 4. Feedback analysis and routing
 
 Usage:
@@ -15,7 +15,7 @@ Run specific tests:
     python scripts/test_epa_architecture.py --test brief
     python scripts/test_epa_architecture.py --test epa
     python scripts/test_epa_architecture.py --test gonca
-    python scripts/test_epa_architecture.py --test can
+    python scripts/test_epa_architecture.py --test alp
     python scripts/test_epa_architecture.py --test full
 """
 
@@ -172,7 +172,7 @@ def test_epa_creation():
     tools = epa._get_tools_schema()
     tool_names = [t["name"] for t in tools]
     print(f"   Tools: {tool_names}")
-    expected_tools = ["search_knowledge", "consult_gonca", "consult_can", "analyze_feedback"]
+    expected_tools = ["search_knowledge", "consult_gonca", "consult_alp", "analyze_feedback"]
     for tool in expected_tools:
         status = "YES" if tool in tool_names else "NO"
         print(f"   - {tool}: {status}")
@@ -216,25 +216,25 @@ def test_gonca_creation():
     return True
 
 
-def test_can_creation():
-    """Test CAN agent creation."""
+def test_alp_creation():
+    """Test ALP agent creation."""
     print("\n" + "=" * 60)
-    print("TEST: CAN Agent Creation")
+    print("TEST: ALP Agent Creation")
     print("=" * 60)
 
-    from content_assistant.agents import CANAgent
+    from content_assistant.agents import ALPAgent
 
-    print("\n1. Creating CAN agent...")
-    can = CANAgent()
-    print(f"   Agent name: {can.agent_name}")
-    print(f"   Temperature: {can.temperature} (should be higher for creativity)")
+    print("\n1. Creating ALP agent...")
+    alp = ALPAgent()
+    print(f"   Agent name: {alp.agent_name}")
+    print(f"   Temperature: {alp.temperature} (should be higher for creativity)")
 
     print("\n2. Checking tools...")
-    tools = can._get_tools_schema()
+    tools = alp._get_tools_schema()
     tool_names = [t["name"] for t in tools]
     print(f"   Tools: {tool_names}")
 
-    print("\nCAN creation test: PASSED")
+    print("\nALP creation test: PASSED")
     return True
 
 
@@ -285,7 +285,7 @@ def test_full_flow():
 def run_all_tests():
     """Run all tests."""
     print("\n" + "#" * 60)
-    print("# EPA-GONCA-CAN ARCHITECTURE TESTS")
+    print("# EPA-GONCA-ALP ARCHITECTURE TESTS")
     print("#" * 60)
 
     results = {}
@@ -295,7 +295,7 @@ def run_all_tests():
     results["brief"] = test_brief_collection()
     results["epa"] = test_epa_creation()
     results["gonca"] = test_gonca_creation()
-    results["can"] = test_can_creation()
+    results["alp"] = test_alp_creation()
 
     # Summary
     print("\n" + "=" * 60)
@@ -312,10 +312,10 @@ def run_all_tests():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test EPA-GONCA-CAN architecture")
+    parser = argparse.ArgumentParser(description="Test EPA-GONCA-ALP architecture")
     parser.add_argument(
         "--test",
-        choices=["types", "brief", "epa", "gonca", "can", "full", "all"],
+        choices=["types", "brief", "epa", "gonca", "alp", "full", "all"],
         default="all",
         help="Which test to run",
     )
@@ -330,8 +330,8 @@ def main():
         test_epa_creation()
     elif args.test == "gonca":
         test_gonca_creation()
-    elif args.test == "can":
-        test_can_creation()
+    elif args.test == "alp":
+        test_alp_creation()
     elif args.test == "full":
         test_full_flow()
     else:

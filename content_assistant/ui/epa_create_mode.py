@@ -1,9 +1,9 @@
 """EPA-based CREATE mode UI for content generation.
 
-Uses the new EPA-GONCA-CAN architecture:
+Uses the new EPA-GONCA-ALP architecture:
 - EPA: Main orchestrator that talks to users
 - GONCA: Wellness sub-agent (invoked by EPA)
-- CAN: Storytelling sub-agent (invoked by EPA)
+- ALP: Storytelling sub-agent (invoked by EPA)
 
 SECURITY NOTE: All database operations go through the API client
 which enforces authentication via JWT tokens.
@@ -38,10 +38,10 @@ STAGE_INFO = {
         "description": "EPA is consulting GONCA (wellness expert)",
         "thinking": "Gathering verified facts from knowledge base...",
     },
-    EPAStage.CONSULTING_CAN: {
+    EPAStage.CONSULTING_ALP: {
         "name": "Creating",
         "icon": "pen",
-        "description": "EPA is consulting CAN (storytelling expert)",
+        "description": "EPA is consulting ALP (storytelling expert)",
         "thinking": "Crafting your content...",
     },
     EPAStage.REVIEWING: {
@@ -218,7 +218,7 @@ def _render_stage_indicator() -> None:
     stages = [
         EPAStage.BRIEFING,
         EPAStage.CONSULTING_GONCA,
-        EPAStage.CONSULTING_CAN,
+        EPAStage.CONSULTING_ALP,
         EPAStage.REVIEWING,
         EPAStage.COMPLETE,
     ]
@@ -279,7 +279,7 @@ def _render_chat_messages() -> None:
                     agent_display = {
                         "epa": "EPA (Orchestrator)",
                         "gonca": "GONCA (Wellness)",
-                        "can": "CAN (Storytelling)",
+                        "alp": "ALP (Storytelling)",
                         "review": "Review",
                     }.get(agent.lower(), agent.title())
                     st.caption(f"*{agent_display}*")
@@ -476,7 +476,7 @@ def render_epa_create_mode() -> None:
 
     # Main content area
     st.header("Create Content")
-    st.caption("Powered by EPA-GONCA-CAN architecture")
+    st.caption("Powered by EPA-GONCA-ALP architecture")
 
     # Show processing banner if awaiting response
     if st.session_state.awaiting_response:
@@ -515,7 +515,7 @@ def render_epa_create_mode() -> None:
     input_placeholders = {
         EPAStage.BRIEFING: "Tell me about the content you want to create...",
         EPAStage.CONSULTING_GONCA: "EPA is gathering information...",
-        EPAStage.CONSULTING_CAN: "EPA is creating content...",
+        EPAStage.CONSULTING_ALP: "EPA is creating content...",
         EPAStage.REVIEWING: "EPA is reviewing...",
         EPAStage.PRESENTING: "How does this content look? Any feedback?",
         EPAStage.COLLECTING_FEEDBACK: "Share your feedback on the content...",

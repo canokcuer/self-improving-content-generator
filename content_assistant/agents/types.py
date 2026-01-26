@@ -1,13 +1,13 @@
-"""Type definitions for EPA-GONCA-CAN agent architecture.
+"""Type definitions for EPA-GONCA-ALP agent architecture.
 
 This module defines the data structures used for communication between
-EPA (main orchestrator) and its sub-agents (GONCA, CAN, Review).
+EPA (main orchestrator) and its sub-agents (GONCA, ALP, Review).
 
 Architecture Overview:
 - EPA: Main orchestrator agent that interacts with users, collects briefs,
        coordinates sub-agents, and reviews all output before delivery.
 - GONCA: Wellness sub-agent that provides TheLifeCo knowledge and verified facts.
-- CAN: Storytelling sub-agent that creates content with full context from EPA.
+- ALP: Storytelling sub-agent that creates content with full context from EPA.
 - Review: Feedback collection sub-agent that analyzes user feedback.
 """
 
@@ -260,7 +260,7 @@ class WellnessRequest:
 class WellnessResponse:
     """Response from GONCA (Wellness sub-agent).
 
-    Contains verified TheLifeCo information that CAN will use
+    Contains verified TheLifeCo information that ALP will use
     for content creation.
     """
     verified_facts: list[str]  # List of verified facts to include
@@ -274,10 +274,10 @@ class WellnessResponse:
 
 @dataclass
 class StorytellingRequest:
-    """Request to CAN (Storytelling sub-agent).
+    """Request to ALP (Storytelling sub-agent).
 
-    EPA sends this with FULL CONTEXT so CAN can create the best content.
-    CAN receives everything it needs - brief, wellness facts, style guidance.
+    EPA sends this with FULL CONTEXT so ALP can create the best content.
+    ALP receives everything it needs - brief, wellness facts, style guidance.
     """
     brief: ContentBrief  # Complete content brief with all 13 fields
     wellness_facts: WellnessResponse  # Verified facts from GONCA
@@ -290,7 +290,7 @@ class StorytellingRequest:
 
 @dataclass
 class StorytellingResponse:
-    """Response from CAN (Storytelling sub-agent).
+    """Response from ALP (Storytelling sub-agent).
 
     Contains the generated content for EPA to review before
     presenting to the user.
@@ -304,7 +304,7 @@ class StorytellingResponse:
     storytelling_framework: str  # Framework used (AIDA, PAS, etc.)
     word_count: int
     character_count: int
-    confidence_notes: str  # CAN's notes on the content
+    confidence_notes: str  # ALP's notes on the content
     alternative_hooks: list[str] = field(default_factory=list)  # Other hook options
 
 
@@ -322,7 +322,7 @@ class FeedbackAnalysis:
     """Response from Review sub-agent analyzing user feedback.
 
     EPA uses this to decide whether to call GONCA (wellness issues)
-    or CAN (storytelling issues) for revisions.
+    or ALP (storytelling issues) for revisions.
     """
     feedback_type: str  # "wellness", "storytelling", "both", or "approved"
     sentiment: str  # "positive", "negative", "mixed"
@@ -341,7 +341,7 @@ class EPAStage(str, Enum):
     """Stages of EPA workflow."""
     BRIEFING = "briefing"  # Collecting the 13 required fields
     CONSULTING_GONCA = "consulting_gonca"  # Getting wellness facts
-    CONSULTING_CAN = "consulting_can"  # Getting content draft
+    CONSULTING_ALP = "consulting_alp"  # Getting content draft
     REVIEWING = "reviewing"  # EPA reviewing sub-agent output
     PRESENTING = "presenting"  # Presenting content to user
     COLLECTING_FEEDBACK = "collecting_feedback"  # Getting user feedback

@@ -16,7 +16,7 @@ A self-improving AI content assistant for TheLifeCo's marketing team that create
 | Embeddings | Voyage AI (voyage-3, 1024 dimensions) |
 | Learning | Signal-derived ranking of few-shot examples |
 
-## Agent Architecture (EPA-GONCA-CAN)
+## Agent Architecture (EPA-GONCA-ALP)
 
 The system uses a sophisticated multi-agent architecture:
 
@@ -32,14 +32,14 @@ The system uses a sophisticated multi-agent architecture:
 │                                                             │
 │  • Interacts directly with users via Socratic questioning   │
 │  • Collects ALL 13 required brief fields before generation  │
-│  • Coordinates sub-agents (GONCA, CAN, Review)              │
+│  • Coordinates sub-agents (GONCA, ALP, Review)              │
 │  • Reviews ALL output before presenting to user             │
 │  • Uses Claude Opus 4.5 for maximum quality                 │
 └────────┬──────────────────────┬──────────────────┬─────────┘
          │                      │                  │
          ▼                      ▼                  ▼
 ┌────────────────┐   ┌────────────────┐   ┌────────────────┐
-│     GONCA      │   │      CAN       │   │     Review     │
+│     GONCA      │   │      ALP       │   │     Review     │
 │(Wellness Expert)│   │ (Storytelling) │   │   (Feedback)   │
 │                │   │                │   │                │
 │ • Program info │   │ • Hooks        │   │ • Analyzes     │
@@ -75,7 +75,7 @@ EPA must collect ALL of these before generating content:
 - **Self-Improving**: Learns from user feedback (star ratings, checkboxes) to improve over time
 - **A/B Testing**: Built-in experiment framework for testing variations
 - **Strict Fact Policy**: Only uses verified TheLifeCo information from GONCA
-- **Full Context**: CAN receives complete brief + wellness facts for best content
+- **Full Context**: ALP receives complete brief + wellness facts for best content
 
 ## Quick Start
 
@@ -142,7 +142,7 @@ content_assistant/
 ├── agents/
 │   ├── epa_agent.py       # Main orchestrator (EPA)
 │   ├── gonca_agent.py     # Wellness sub-agent (GONCA)
-│   ├── can_agent.py       # Storytelling sub-agent (CAN)
+│   ├── alp_agent.py       # Storytelling sub-agent (ALP)
 │   ├── review_subagent.py # Feedback analyzer
 │   ├── types.py           # Shared type definitions
 │   └── base_agent.py      # Base agent class

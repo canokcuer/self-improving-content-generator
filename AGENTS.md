@@ -9,7 +9,7 @@ Building a self-improving AI content assistant for TheLifeCo's marketing team th
 2. Reviews existing content for wellness accuracy and engagement
 3. Learns over time through signal-derived feedback loops
 
-## Agent Architecture (EPA-GONCA-CAN)
+## Agent Architecture (EPA-GONCA-ALP)
 
 The system uses a multi-agent architecture with Claude Opus 4.5:
 
@@ -19,7 +19,7 @@ The system uses a multi-agent architecture with Claude Opus 4.5:
 - **Responsibilities**:
   - Socratic questioning to collect 13 required brief fields
   - Invoking GONCA for wellness facts
-  - Invoking CAN for content creation
+  - Invoking ALP for content creation
   - Reviewing all output before presenting to user
   - Routing feedback to appropriate sub-agent
 
@@ -32,9 +32,9 @@ The system uses a multi-agent architecture with Claude Opus 4.5:
   - Compliance guidance for health claims
   - Verified facts from knowledge base
 
-### CAN (Storytelling Sub-Agent)
+### ALP (Storytelling Sub-Agent)
 - **Role**: Creates engaging content with full context
-- **File**: `content_assistant/agents/can_agent.py`
+- **File**: `content_assistant/agents/alp_agent.py`
 - **Receives**:
   - Complete brief (all 13 fields)
   - Wellness facts from GONCA
@@ -46,7 +46,7 @@ The system uses a multi-agent architecture with Claude Opus 4.5:
 ### Review Sub-Agent
 - **Role**: Analyzes user feedback
 - **File**: `content_assistant/agents/review_subagent.py`
-- **Determines**: Whether to route to GONCA (wellness issues) or CAN (storytelling issues)
+- **Determines**: Whether to route to GONCA (wellness issues) or ALP (storytelling issues)
 
 ## Critical Reference
 
@@ -79,14 +79,14 @@ content_assistant/
 ├── __init__.py          # Package init with version
 ├── app.py               # Main Streamlit entry point
 ├── config.py            # Configuration management
-├── agents/              # Agent system (EPA-GONCA-CAN)
+├── agents/              # Agent system (EPA-GONCA-ALP)
 │   ├── __init__.py
 │   ├── types.py         # Shared types (ContentBrief, EPAState, etc.)
 │   ├── base_agent.py    # Base agent class
 │   ├── subagent_base.py # Base for sub-agents
 │   ├── epa_agent.py     # EPA main orchestrator
 │   ├── gonca_agent.py   # GONCA wellness sub-agent
-│   ├── can_agent.py     # CAN storytelling sub-agent
+│   ├── alp_agent.py     # ALP storytelling sub-agent
 │   ├── review_subagent.py # Feedback analyzer
 │   ├── orchestrator.py  # (Legacy) Old orchestrator
 │   ├── coordinator.py   # (Legacy) Old coordinator
@@ -248,5 +248,5 @@ Signals for learning:
 All agents use Claude Opus 4.5:
 - **EPA**: Full orchestrator capabilities
 - **GONCA**: Lower temperature (0.3) for factual accuracy
-- **CAN**: Higher temperature (0.8) for creativity
+- **ALP**: Higher temperature (0.8) for creativity
 - **Review**: Lower temperature (0.3) for analytical work

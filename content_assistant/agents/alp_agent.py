@@ -1,13 +1,13 @@
-"""CAN Sub-Agent - Storytelling Expert for TheLifeCo Content Assistant.
+"""ALP Sub-Agent - Storytelling Expert for TheLifeCo Content Assistant.
 
-CAN is a sub-agent that creates engaging content using:
+ALP is a sub-agent that creates engaging content using:
 1. FULL context from EPA (complete brief, wellness facts, user voice)
 2. Proven storytelling frameworks (AIDA, PAS, Story-driven, etc.)
 3. Platform-specific best practices
 4. TheLifeCo brand voice and style
 
-CAN is invoked by EPA (main orchestrator) as a tool, not directly by users.
-CAN receives EVERYTHING it needs to create the best possible content.
+ALP is invoked by EPA (main orchestrator) as a tool, not directly by users.
+ALP receives EVERYTHING it needs to create the best possible content.
 """
 
 from dataclasses import dataclass
@@ -27,10 +27,10 @@ from content_assistant.rag.knowledge_base import search_knowledge
 
 
 # =============================================================================
-# SYSTEM PROMPT FOR CAN
+# SYSTEM PROMPT FOR ALP
 # =============================================================================
 
-CAN_SYSTEM_PROMPT = """You are CAN, the storytelling expert sub-agent for TheLifeCo Content Assistant.
+ALP_SYSTEM_PROMPT = """You are ALP, the storytelling expert sub-agent for TheLifeCo Content Assistant.
 You are a master content creator who crafts engaging, transformational wellness content.
 
 ## Your Role
@@ -128,11 +128,11 @@ Structure your content creation response with:
 
 
 # =============================================================================
-# CAN SUB-AGENT IMPLEMENTATION
+# ALP SUB-AGENT IMPLEMENTATION
 # =============================================================================
 
-class CANAgent(BaseAgent):
-    """CAN - Storytelling Expert Sub-Agent.
+class ALPAgent(BaseAgent):
+    """ALP - Storytelling Expert Sub-Agent.
 
     Creates engaging content using full context from EPA,
     proven storytelling frameworks, and platform best practices.
@@ -143,23 +143,23 @@ class CANAgent(BaseAgent):
         model: Optional[str] = None,
         temperature: float = 0.8,  # Higher temperature for creativity
     ):
-        """Initialize CAN agent.
+        """Initialize ALP agent.
 
         Args:
             model: Claude model to use (defaults to config)
             temperature: Higher temperature for creative content
         """
         super().__init__(
-            agent_name="can",
-            system_prompt=CAN_SYSTEM_PROMPT,
+            agent_name="alp",
+            system_prompt=ALP_SYSTEM_PROMPT,
             model=model,
             temperature=temperature,
-            # CAN can access storytelling/brand knowledge
+            # ALP can access storytelling/brand knowledge
             knowledge_sources=[],  # No filtering for now
         )
 
     def register_tools(self) -> None:
-        """Register CAN-specific tools."""
+        """Register ALP-specific tools."""
         # Tool: Get storytelling examples
         self.register_tool(AgentTool(
             name="get_storytelling_examples",
@@ -279,7 +279,7 @@ class CANAgent(BaseAgent):
         return self._parse_response(response.content, request)
 
     def _build_prompt(self, request: StorytellingRequest) -> str:
-        """Build comprehensive prompt with FULL context for CAN."""
+        """Build comprehensive prompt with FULL context for ALP."""
         brief = request.brief
         wellness = request.wellness_facts
 
@@ -418,7 +418,7 @@ class CANAgent(BaseAgent):
         return "\n".join(prompt_parts)
 
     def _parse_response(self, response_text: str, request: StorytellingRequest) -> StorytellingResponse:
-        """Parse CAN's response into structured StorytellingResponse."""
+        """Parse ALP's response into structured StorytellingResponse."""
         # Initialize defaults
         hook = ""
         hook_type = "curiosity"

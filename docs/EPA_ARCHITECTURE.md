@@ -1,8 +1,8 @@
-# EPA-GONCA-CAN Architecture
+# EPA-GONCA-ALP Architecture
 
 ## Overview
 
-This document describes the new agent architecture for TheLifeCo Content Assistant, featuring EPA as the main orchestrator with GONCA and CAN as sub-agents.
+This document describes the new agent architecture for TheLifeCo Content Assistant, featuring EPA as the main orchestrator with GONCA and ALP as sub-agents.
 
 ## Architecture Diagram
 
@@ -19,7 +19,7 @@ This document describes the new agent architecture for TheLifeCo Content Assista
 │  Responsibilities:                                                       │
 │  • Direct user interaction through Socratic questioning                  │
 │  • Collect ALL 13 required brief fields before content generation        │
-│  • Coordinate sub-agents (GONCA, CAN, Review)                           │
+│  • Coordinate sub-agents (GONCA, ALP, Review)                           │
 │  • Review ALL sub-agent output before presenting to user                 │
 │  • Make final adjustments for quality and alignment                      │
 │  • Route feedback to appropriate sub-agent for revisions                 │
@@ -32,13 +32,13 @@ This document describes the new agent architecture for TheLifeCo Content Assista
 │  Tools:                                                                  │
 │  • search_knowledge - Search entire knowledge base                       │
 │  • consult_gonca - Get wellness facts from GONCA                        │
-│  • consult_can - Get content from CAN (requires complete brief)         │
+│  • consult_alp - Get content from ALP (requires complete brief)         │
 │  • analyze_feedback - Analyze user feedback                              │
 └────────┬────────────────────────┬────────────────────────┬───────────────┘
          │                        │                        │
          ▼                        ▼                        ▼
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│     GONCA       │    │      CAN        │    │     Review      │
+│     GONCA       │    │      ALP        │    │     Review      │
 │ (Wellness Expert)│    │(Storytelling)   │    │(Feedback Analyzer)│
 │                 │    │                 │    │                 │
 │ Provides:       │    │ Creates:        │    │ Analyzes:       │
@@ -133,12 +133,12 @@ EPA ──[consult_gonca]──> GONCA
                     EPA stores response
 ```
 
-### Stage 3: Consulting CAN (Content Creation)
+### Stage 3: Consulting ALP (Content Creation)
 
 ```
-EPA ──[consult_can]──> CAN
+EPA ──[consult_alp]──> ALP
                         │
-                        │ CAN receives FULL context:
+                        │ ALP receives FULL context:
                         │ • Complete brief (all 13 fields)
                         │ • Wellness facts from GONCA
                         │ • User voice preferences
@@ -147,7 +147,7 @@ EPA ──[consult_can]──> CAN
                         │ • Previous feedback (if revision)
                         │
                         ▼
-                 CAN creates content using:
+                 ALP creates content using:
                  • Best storytelling framework
                  • Platform-specific format
                  • Brand voice guidelines
@@ -174,7 +174,7 @@ EPA ──[consult_can]──> CAN
 ### Stage 4: EPA Review & Presentation
 
 ```
-EPA reviews CAN's content:
+EPA reviews ALP's content:
 ├── Does it address the Pain Area?
 ├── Are facts from GONCA used correctly?
 ├── Does it match requested tone?
@@ -214,8 +214,8 @@ EPA ──[analyze_feedback]──> Review Sub-Agent
                               ▼
 EPA routes based on feedback_type:
 ├── "wellness" ──> Consult GONCA again
-├── "storytelling" ──> Consult CAN again (with feedback)
-├── "both" ──> GONCA then CAN
+├── "storytelling" ──> Consult ALP again (with feedback)
+├── "both" ──> GONCA then ALP
 └── "approved" ──> Finalize
 ```
 
@@ -280,7 +280,7 @@ FeedbackRequest:
 - Can search entire knowledge base
 - Sub-agents also have full access (needed for accurate information)
 
-### 2. CAN Receives FULL Context
+### 2. ALP Receives FULL Context
 - Not just a "topic" or "summary"
 - Complete brief with all 13 fields
 - All verified facts from GONCA
@@ -295,13 +295,13 @@ FeedbackRequest:
 
 ### 4. Feedback Routes Intelligently
 - Wellness issues → GONCA
-- Storytelling issues → CAN
-- Both → GONCA first, then CAN with updated facts
+- Storytelling issues → ALP
+- Both → GONCA first, then ALP with updated facts
 
 ### 5. Pain Area is the North Star
 - Most crucial field in the brief
 - EPA asks about it early and deeply
-- CAN's content must address it specifically
+- ALP's content must address it specifically
 
 ## File Structure
 
@@ -310,7 +310,7 @@ content_assistant/agents/
 ├── types.py              # Shared types: ContentBrief, WellnessResponse, etc.
 ├── epa_agent.py          # EPA main orchestrator
 ├── gonca_agent.py        # GONCA wellness sub-agent
-├── can_agent.py          # CAN storytelling sub-agent
+├── alp_agent.py          # ALP storytelling sub-agent
 ├── review_subagent.py    # Review feedback analyzer
 ├── base_agent.py         # Base class (existing)
 └── __init__.py           # Updated exports
@@ -333,9 +333,9 @@ STAGE_INFO = {
         "description": "EPA is consulting GONCA (wellness expert)",
         "thinking": "Gathering verified facts..."
     },
-    EPAStage.CONSULTING_CAN: {
+    EPAStage.CONSULTING_ALP: {
         "name": "Creating",
-        "description": "EPA is consulting CAN (storytelling expert)",
+        "description": "EPA is consulting ALP (storytelling expert)",
         "thinking": "Crafting your content..."
     },
     EPAStage.REVIEWING: {
@@ -351,7 +351,7 @@ STAGE_INFO = {
 
 ```
 [EPA is consulting GONCA...]  # When consult_gonca tool is called
-[EPA is consulting CAN...]    # When consult_can tool is called
+[EPA is consulting ALP...]    # When consult_alp tool is called
 [EPA is analyzing feedback...] # When analyze_feedback is called
 ```
 
@@ -366,7 +366,7 @@ STAGE_INFO = {
 ### New (EPA)
 - EPA orchestrates everything
 - Sub-agents invoked as tools
-- Full context to CAN
+- Full context to ALP
 - EPA reviews all output
 
 ### Migration Steps
