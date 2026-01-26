@@ -22,41 +22,23 @@ st.set_page_config(
 # Get logo path
 LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
 
-# Custom CSS for dark sidebar and logo area
+# Custom CSS for dark logo containers only
 st.markdown("""
 <style>
-    /* Dark sidebar */
-    [data-testid="stSidebar"] {
-        background-color: #1a1a2e;
-    }
-
-    /* Sidebar text color */
-    [data-testid="stSidebar"] * {
-        color: #ffffff !important;
-    }
-
-    /* Sidebar divider */
-    [data-testid="stSidebar"] hr {
-        border-color: #404060;
-    }
-
-    /* Sidebar buttons */
-    [data-testid="stSidebar"] button {
-        background-color: #2d2d44;
-        border-color: #404060;
-    }
-
-    [data-testid="stSidebar"] button:hover {
-        background-color: #3d3d5c;
-        border-color: #505080;
-    }
-
-    /* Dark logo container for login page */
+    /* Dark background container for logo */
     .logo-container {
         background-color: #1a1a2e;
-        padding: 2rem;
+        padding: 1.5rem;
         border-radius: 10px;
         margin-bottom: 1rem;
+    }
+
+    /* Dark background for sidebar logo */
+    .sidebar-logo-container {
+        background-color: #1a1a2e;
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 0.5rem;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -68,17 +50,32 @@ from content_assistant.ui.history_sidebar import render_history_sidebar  # noqa:
 from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa: E402
 
 
-def _get_logo_html(logo_path: Path, max_width: int = 400, centered: bool = False, dark_bg: bool = False) -> str:
-    """Get logo HTML without fullscreen icon."""
+def _get_logo_html(logo_path: Path, max_width: int = 400, centered: bool = False, location: str = "main") -> str:
+    """Get logo HTML without fullscreen icon.
+
+    Args:
+        logo_path: Path to logo file
+        max_width: Maximum width in pixels
+        centered: Whether to center the logo
+        location: "main" for login page, "sidebar" for sidebar
+    """
     import base64
     with open(logo_path, "rb") as f:
         logo_data = base64.b64encode(f.read()).decode()
 
     align = "center" if centered else "left"
 
-    if dark_bg:
+    if location == "main":
+        # Dark container for login page
         return f'''
         <div class="logo-container" style="text-align: {align};">
+            <img src="data:image/png;base64,{logo_data}" style="max-width: {max_width}px; width: 100%;">
+        </div>
+        '''
+    elif location == "sidebar":
+        # Dark container for sidebar
+        return f'''
+        <div class="sidebar-logo-container" style="text-align: {align};">
             <img src="data:image/png;base64,{logo_data}" style="max-width: {max_width}px; width: 100%;">
         </div>
         '''
@@ -96,13 +93,13 @@ def main():
     if not check_authentication():
         # Show centered logo on login page with dark background
         if LOGO_PATH.exists():
-            st.markdown(_get_logo_html(LOGO_PATH, max_width=400, centered=True, dark_bg=True), unsafe_allow_html=True)
+            st.markdown(_get_logo_html(LOGO_PATH, max_width=400, centered=True, location="main"), unsafe_allow_html=True)
         show_login_form()
         return
 
-    # Logo in sidebar (after sign-in) - no fullscreen icon
+    # Logo in sidebar (after sign-in) with dark background
     if LOGO_PATH.exists():
-        st.sidebar.markdown(_get_logo_html(LOGO_PATH, max_width=250, centered=False), unsafe_allow_html=True)
+        st.sidebar.markdown(_get_logo_html(LOGO_PATH, max_width=250, centered=False, location="sidebar"), unsafe_allow_html=True)
         st.sidebar.divider()
 
     # User info and logout in sidebar
