@@ -15,6 +15,14 @@ class VectorStoreError(Exception):
     pass
 
 
+def _format_embedding_for_pgvector(embedding: list[float]) -> str:
+    """Format embedding list as pgvector string format.
+
+    pgvector expects vectors as string like '[0.1,0.2,0.3]'
+    """
+    return "[" + ",".join(str(x) for x in embedding) + "]"
+
+
 def store_chunk(
     content: str,
     source: str,
@@ -44,7 +52,7 @@ def store_chunk(
             "content": content,
             "source": source,
             "chunk_index": chunk_index,
-            "embedding": embedding,
+            "embedding": _format_embedding_for_pgvector(embedding),
             "metadata": metadata or {},
         }
 
@@ -83,13 +91,13 @@ def store_chunks(chunks: list[dict]) -> list[str]:
     try:
         client = get_admin_client()
 
-        # Prepare data for bulk insert
+        # Prepare data for bulk insert with properly formatted embeddings
         data = [
             {
                 "content": chunk["content"],
                 "source": chunk["source"],
                 "chunk_index": chunk["chunk_index"],
-                "embedding": chunk["embedding"],
+                "embedding": _format_embedding_for_pgvector(chunk["embedding"]),
                 "metadata": chunk.get("metadata", {}),
             }
             for chunk in chunks
@@ -134,10 +142,13 @@ def search_similar(
     try:
         client = get_admin_client()
 
+        # Format query embedding for pgvector
+        formatted_embedding = _format_embedding_for_pgvector(query_embedding)
+
         result = client.rpc(
             "match_knowledge_chunks",
             {
-                "query_embedding": query_embedding,
+                "query_embedding": formatted_embedding,
                 "match_threshold": match_threshold,
                 "match_count": match_count,
             },

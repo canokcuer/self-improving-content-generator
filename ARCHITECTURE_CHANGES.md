@@ -1,389 +1,273 @@
 # TheLifeCo Content Assistant - Architecture Changes Summary
 
-**Last Updated:** January 23, 2025
+**Last Updated:** January 26, 2025
 **Purpose:** Document major architecture changes for session continuity
 
 ---
 
-## Overview
+## Current Architecture: EPA-GONCA-CAN
 
-The TheLifeCo Content Assistant is being transformed from a **form-based content generator** to a **fully agentic, conversational system** with self-improving capabilities.
+The system now uses a **true orchestrator pattern** where EPA is the main agent that coordinates sub-agents as tools.
 
----
+### Architecture Diagram
 
-## What Changed and Why
-
-### 1. From 13-Question Form → Conversational Briefing
-
-**Before:**
-- Rigid 13-question form (transformation goal, audience, pain point, etc.)
-- Users had to answer all questions sequentially
-- No flexibility or clarification
-
-**After:**
-- Natural conversation with Orchestrator Agent
-- Agent asks clarifying questions until 100% aligned
-- Proactive suggestions based on context
-- Campaign/pricing collected dynamically when needed (not stored in KB)
-
-**Why:**
-- Better user experience
-- More accurate briefs through clarification
-- Flexibility for different content needs
-- Agent can suggest approaches user didn't consider
-
----
-
-### 2. From Single Generator → Multi-Agent Pipeline
-
-**Before:**
-- Single Claude call for content generation
-- Limited fact-checking
-- No structured feedback loop
-
-**After:**
-- **Orchestrator Agent:** Conversational briefing, funnel detection
-- **Wellness Agent:** Fact verification against knowledge base
-- **Storytelling Agent:** Content creation with engagement optimization
-- **Review Agent:** Feedback collection, learning extraction
-
-**Pipeline Flow:**
 ```
-User → Orchestrator (brief) → Wellness (verify) → Storytelling (preview → content) → Review (feedback)
+┌─────────────────────────────────────────────────────────────┐
+│                      USER INTERFACE                          │
+│                   (Streamlit epa_create_mode.py)             │
+└─────────────────────────────┬───────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    EPA (Main Orchestrator)                   │
+│                     Claude Opus 4.5                          │
+│                                                             │
+│  • Interacts directly with users via Socratic questioning   │
+│  • Collects ALL 13 required brief fields before generation  │
+│  • Invokes sub-agents as TOOLS (not separate stages)        │
+│  • Reviews ALL output before presenting to user             │
+│  • Routes feedback to appropriate sub-agent                 │
+└────────┬──────────────────────┬──────────────────┬─────────┘
+         │                      │                  │
+    [consult_gonca]        [consult_can]    [analyze_feedback]
+         │                      │                  │
+         ▼                      ▼                  ▼
+┌────────────────┐   ┌────────────────┐   ┌────────────────┐
+│     GONCA      │   │      CAN       │   │     Review     │
+│   Opus 4.5     │   │   Opus 4.5     │   │   Opus 4.5     │
+│  temp=0.3      │   │  temp=0.8      │   │  temp=0.3      │
+│                │   │                │   │                │
+│ • Program info │   │ • Full context │   │ • Categorizes  │
+│ • Center info  │   │ • Hooks        │   │   feedback     │
+│ • Verified facts│  │ • Content body │   │ • Routes to    │
+│ • Compliance   │   │ • CTAs         │   │   right agent  │
+└────────────────┘   └────────────────┘   └────────────────┘
 ```
 
-**Why:**
-- Separation of concerns (each agent specializes)
-- Better fact accuracy through dedicated verification
-- Structured feedback enables learning
-- Easier to improve individual components
-
 ---
 
-### 3. From Session-Based → Forever Conversations
+## Key Changes from Previous Architecture
 
-**Before:**
-- Each session started fresh
-- No way to continue editing content
-- History showed generations, not conversations
+### Before: State Machine Pipeline (AgentCoordinator)
 
-**After:**
-- Conversations persist in database
-- Users can continue where they left off
-- Full message history preserved
-- Edit content through ongoing dialogue
-
-**Why:**
-- Content often needs multiple iterations
-- Users return to refine over days/weeks
-- Better context for follow-up requests
-
----
-
-### 4. From Flat Knowledge → Agent-Specific Knowledge
-
-**Before:**
 ```
-knowledge/
-├── brand_usps.md
-├── hook_patterns.md
-├── wellness_knowhow.md
-└── ... (all flat)
+User → Orchestrator → Wellness → Storytelling (Preview) → Storytelling (Content) → Review
+         (stage 1)    (stage 2)      (stage 3)               (stage 4)          (stage 5)
 ```
 
-**After:**
+**Problems:**
+- Each agent was an independent stage
+- Limited context passing between stages
+- No central review before user sees content
+- Source filtering blocked knowledge access
+
+### After: True Orchestrator Pattern (EPA)
+
 ```
-knowledge/
-├── orchestrator/
-│   ├── funnel_stages.md        # Marketing funnel definitions
-│   ├── briefing_guidelines.md  # How to conduct conversations
-│   └── clarification_patterns.md # Common clarification questions
-├── wellness/
-│   ├── wellness_knowhow.md
-│   ├── programs_and_offerings.md
-│   ├── thelifeco_method.md
-│   ├── pain_solution_matrix.md
-│   └── centers/
-│       ├── center_antalya.md
-│       ├── center_bodrum.md
-│       ├── center_phuket.md
-│       └── center_sharm.md
-├── storytelling/
-│   ├── hook_patterns.md
-│   ├── engagement_guide.md
-│   ├── platform_rules.md
-│   └── cta_guidelines.md
-└── brand/
-    └── brand_usps.md
+User ←→ EPA
+        │
+        ├── [consult_gonca] → GONCA (returns wellness facts)
+        │
+        ├── [consult_can] → CAN (returns content with FULL context)
+        │
+        └── [analyze_feedback] → Review (routes feedback)
 ```
 
-**Why:**
-- Each agent accesses only relevant knowledge
-- Faster, more focused searches
-- Easier to maintain and update
-- Clear ownership of knowledge areas
+**Benefits:**
+- EPA maintains full conversation context
+- Sub-agents are tools, not stages
+- CAN receives COMPLETE brief + wellness facts
+- EPA reviews everything before user sees it
+- No source filtering - full knowledge access
 
 ---
 
-### 5. From Basic Feedback → Self-Improving Learning System
+## The 13 Required Brief Fields
 
-**Before:**
-- Star rating (1-5)
-- "What worked" checkboxes
-- Few-shot examples from high-rated content
+EPA must collect ALL of these before generating content:
 
-**After:**
-- Structured + open-ended feedback
-- Learning extraction from feedback patterns
-- Admin review queue for learnings
-- Approved learnings applied to future generations
-- Role-based access (user, editor, admin)
+1. **Target Audience** - Who is this content for?
+2. **Pain Area** (CRUCIAL) - What problem are we addressing?
+3. **Compliance Level** - High (medical) or Low (general wellness)
+4. **Funnel Stage** - awareness/consideration/conversion/loyalty
+5. **Value Proposition** - What unique value are we offering?
+6. **Desired Action** - What should readers do?
+7. **Specific Programs** - Which TheLifeCo programs to feature
+8. **Specific Centers** - Which centers (Antalya, Bodrum, Phuket, Sharm)
+9. **Tone** - Voice and style (professional, casual, inspirational)
+10. **Key Messages** - Core points to communicate
+11. **Constraints** - Things to avoid
+12. **Platform** - Where will this be published
+13. **Price Points** - Pricing information to include
 
-**Learning Types:**
-- **Pattern:** "Users prefer shorter hooks on Instagram"
-- **Preference:** "User X prefers formal tone"
-- **Correction:** "Don't say X, say Y instead"
-- **Style:** "Wellness content works better with statistics"
-
-**Why:**
-- System improves over time
-- Admin control over what's learned
-- Patterns identified across multiple users
-- Quality control through review process
-
----
-
-### 6. Marketing Funnel Integration
-
-**New Feature:** Content automatically aligned to funnel stage
-
-**Funnel Stages:**
-1. **Awareness:** Educate, create problem awareness (soft CTAs)
-2. **Consideration:** Help decide, differentiate (medium CTAs)
-3. **Conversion:** Drive bookings, specific offers (strong CTAs)
-4. **Loyalty:** Retain, encourage referrals (relationship CTAs)
-
-**How It Works:**
-- Orchestrator detects funnel stage from conversation
-- Storytelling Agent adapts content style
-- CTAs match the stage
-- Campaign details collected for conversion content
-
-**Why:**
-- Content should match where audience is in journey
-- Different stages need different approaches
-- Prevents mismatch (e.g., hard sell to unaware audience)
-
----
-
-### 7. Dynamic Campaign/Pricing Collection
-
-**Before:** Pricing stored in knowledge base (static)
-
-**After:** Orchestrator asks user during conversation:
-- "Is this for a specific campaign/promotion?"
-- "What's the price point?"
-- "What duration?" (3-day, 7-day, etc.)
-- "Which center(s)?"
-- "Any deadline/limited availability?"
-
-**Why:**
-- Pricing changes frequently
-- Campaigns are time-limited
-- More accurate than outdated KB
-- User always has latest info
-
----
-
-### 8. From Form UI → Chat UI
-
-**Before:**
-- Multi-step form wizard
-- Fixed question sequence
-- No back-and-forth
-
-**After:**
-- Chat interface (like ChatGPT/Claude)
-- Message bubbles for user and agents
-- Agent status indicator
-- Real-time conversation flow
-- Side panel with brief summary
-
-**Why:**
-- More natural interaction
-- Easier to clarify and iterate
-- Matches user expectations from AI tools
-- Better for "continue conversation" feature
-
----
-
-## New Database Tables
-
-### 1. agent_configurations
-Stores settings for each agent (system prompt, model, tools, etc.)
-
-### 2. agent_learnings
-Stores learnings extracted from feedback
-- learning_type, content, confidence_score
-- is_approved (admin approval)
-- times_applied, success_rate
-
-### 3. feedback_reviews
-Detailed feedback with admin review workflow
-- rating, feedback_text, what_worked, what_needs_work
-- admin_review_status, admin_notes
-
-### 4. conversations
-Persistent conversation storage
-- messages (JSONB array)
-- current_agent, agent_state
-- brief_data, funnel_stage, campaign_info
-
-### 5. user_roles
-Role-based access control
-- role: user, editor, admin, super_admin
-- permissions (granular)
+For **Conversion** funnel stage, also collect:
+- Campaign price, duration, center, deadline
 
 ---
 
 ## New Files Created
 
-### Agents (`content_assistant/agents/`)
+### Agent Types (`content_assistant/agents/types.py`)
+- `ContentBrief` - All 13 required fields + validation
+- `EPAState`, `EPAStage` - State management
+- `WellnessRequest`, `WellnessResponse` - GONCA communication
+- `StorytellingRequest`, `StorytellingResponse` - CAN communication
+- `FeedbackRequest`, `FeedbackAnalysis` - Review communication
+
+### New Agents
 | File | Purpose |
 |------|---------|
-| `__init__.py` | Exports all agents and data classes |
-| `base_agent.py` | Base class with Claude tool use, conversation management |
-| `orchestrator.py` | Conversational briefing, funnel detection, campaign collection |
-| `wellness_agent.py` | Fact verification against knowledge base |
-| `storytelling_agent.py` | Content creation with hooks and engagement |
-| `review_agent.py` | Feedback collection, learning extraction |
-| `coordinator.py` | Sequential agent execution, state management |
+| `epa_agent.py` | Main orchestrator - Socratic questioning, sub-agent coordination |
+| `gonca_agent.py` | Wellness sub-agent - TheLifeCo knowledge, fact verification |
+| `can_agent.py` | Storytelling sub-agent - Content creation with FULL context |
+| `review_subagent.py` | Feedback analyzer - Routes to GONCA or CAN |
+| `subagent_base.py` | Base class for sub-agents |
 
-### Database (`content_assistant/db/`)
+### Updated Files
+| File | Change |
+|------|--------|
+| `content_assistant/agents/__init__.py` | Exports new agents and types |
+| `content_assistant/ui/__init__.py` | Defaults to EPA create mode |
+| `content_assistant/ui/epa_create_mode.py` | New UI for EPA |
+| `content_assistant/app.py` | Uses EPA create mode |
+| `.env` | `CLAUDE_MODEL=claude-opus-4-5-20251101` |
+
+### Documentation
 | File | Purpose |
 |------|---------|
-| `conversations.py` | CRUD operations for conversation persistence |
-| `schema.sql` | Updated with 5 new tables |
-
-### Knowledge Base (`knowledge/`)
-| Folder | Purpose |
-|--------|---------|
-| `orchestrator/` | Briefing guidelines, funnel stages, clarification patterns |
-| `wellness/` | Programs, therapies, center info |
-| `wellness/centers/` | Center-specific information |
-| `storytelling/` | Hooks, engagement, platform rules, CTAs |
-| `brand/` | Brand USPs and voice |
+| `docs/EPA_ARCHITECTURE.md` | Detailed architecture documentation |
+| `scripts/test_epa_architecture.py` | Architecture test script |
 
 ---
 
-## Configuration Changes
+## Model Configuration
 
-### `config.py`
-- Default model changed to `claude-opus-4-5-20251101`
+All agents use **Claude Opus 4.5** (`claude-opus-4-5-20251101`):
 
-### `generation/claude_client.py`
-- Added Opus 4.5 pricing
-- Updated pricing comment year
-
----
-
-## Remaining Tasks
-
-### High Priority
-1. **#19 Chat UI** - Replace form with chat interface
-2. **#2-6 Bug fixes** - OAuth, password reset, feedback field, history
-
-### After Implementation
-3. **#20 Integration testing** - End-to-end validation
+| Agent | Temperature | Purpose |
+|-------|-------------|---------|
+| EPA | 0.7 | Balanced for conversation |
+| GONCA | 0.3 | Lower for factual accuracy |
+| CAN | 0.8 | Higher for creativity |
+| Review | 0.3 | Lower for analytical work |
 
 ---
 
-## How Agents Work Together
+## Data Flow
 
-### AgentCoordinator Flow:
+### Content Generation Flow
 
-```python
-coordinator = AgentCoordinator()
+1. **User → EPA**: "I want to create Instagram content about weight loss"
 
-# Stage 1: Orchestrator (conversational briefing)
-while not brief_complete:
-    response = coordinator.process_message(user_input)
-    # Agent asks clarifying questions
-    # Detects funnel stage
-    # Collects campaign info if conversion
+2. **EPA Briefing** (Socratic questioning until 13 fields collected):
+   - Target audience?
+   - Pain area (CRUCIAL)?
+   - ...all 13 fields...
 
-# Stage 2: Wellness (automatic)
-# Verifies brief against knowledge base
-# Provides verified facts for content
+3. **EPA → GONCA** (via `consult_gonca` tool):
+   - Request: WellnessRequest with query + brief context
+   - Response: WellnessResponse with verified facts, program details, compliance guidance
 
-# Stage 3: Storytelling Preview
-# Generates hook + open loops + promise
-# User approves or requests changes
+4. **EPA → CAN** (via `consult_can` tool):
+   - Request: StorytellingRequest with FULL CONTEXT:
+     - Complete brief (all 13 fields)
+     - Wellness facts from GONCA
+     - User voice preferences
+     - Style guidance
+     - Conversation context
+   - Response: StorytellingResponse with hook, content, CTA, hashtags
 
-# Stage 4: Storytelling Content
-# Generates full content based on approved preview
+5. **EPA Review**: EPA reviews CAN's content, makes adjustments if needed
 
-# Stage 5: Review
-# Collects feedback
-# Extracts learnings
-# Queues for admin review if needed
+6. **EPA → User**: Final content presented
+
+### Feedback Flow
+
+1. **User → EPA**: Feedback on generated content
+2. **EPA → Review** (via `analyze_feedback` tool): Analyze feedback
+3. **Review returns**: FeedbackAnalysis with feedback_type and suggested_action
+4. **EPA routes**:
+   - "wellness" → Consult GONCA again
+   - "storytelling" → Consult CAN again with feedback
+   - "both" → GONCA then CAN
+   - "approved" → Finalize
+
+---
+
+## Legacy Files (Deprecated)
+
+The following files are kept for backward compatibility but are not used:
+
+| File | Status |
+|------|--------|
+| `orchestrator.py` | Deprecated - replaced by `epa_agent.py` |
+| `wellness_agent.py` | Deprecated - replaced by `gonca_agent.py` |
+| `storytelling_agent.py` | Deprecated - replaced by `can_agent.py` |
+| `review_agent.py` | Deprecated - replaced by `review_subagent.py` |
+| `coordinator.py` | Deprecated - EPA handles coordination |
+| `create_mode.py` | Deprecated - replaced by `epa_create_mode.py` |
+
+---
+
+## Testing
+
+### Run Architecture Tests
+
+```bash
+# All tests
+python scripts/test_epa_architecture.py
+
+# Specific tests
+python scripts/test_epa_architecture.py --test types
+python scripts/test_epa_architecture.py --test brief
+python scripts/test_epa_architecture.py --test epa
+python scripts/test_epa_architecture.py --test gonca
+python scripts/test_epa_architecture.py --test can
+python scripts/test_epa_architecture.py --test full  # Requires API keys
 ```
 
-### Agent Tools:
-Each agent has access to specific tools:
-- **Orchestrator:** search_knowledge, get_similar_content, get_program_details, get_center_info
-- **Wellness:** verify_program, verify_center, verify_wellness_claim, get_verified_facts
-- **Storytelling:** get_hook_patterns, get_platform_rules, get_engagement_tactics, get_cta_templates
-- **Review:** store_feedback, extract_learning, queue_for_review, get_approved_learnings
+### Verify Models
 
----
+```python
+from content_assistant.agents import EPAAgent, GONCAAgent, CANAgent
+from content_assistant.agents.review_subagent import ReviewSubAgent
 
-## Key Design Decisions
+epa = EPAAgent()
+gonca = GONCAAgent()
+can = CANAgent()
+review = ReviewSubAgent()
 
-1. **Pricing NOT in Knowledge Base:** Collected dynamically from user
-2. **Doctor Info NOT Required:** Deprioritized, can be added later
-3. **Sequential Agent Execution:** Not parallel, each agent builds on previous
-4. **Admin Approval for Learnings:** Prevents bad patterns from being applied
-5. **Campaign Details Only for Conversion:** Other funnel stages don't need pricing
+# All should be claude-opus-4-5-20251101
+print(f"EPA: {epa.model}")
+print(f"GONCA: {gonca.model}")
+print(f"CAN: {can.model}")
+print(f"Review: {review.model}")
+```
 
 ---
 
 ## To Continue Development
 
-1. Read this file for context
-2. Check `TaskList` for pending tasks
+1. Read this file and `docs/EPA_ARCHITECTURE.md` for context
+2. All agents use Opus 4.5 - confirmed in `.env`
 3. Key files to understand:
-   - `content_assistant/agents/coordinator.py` - Main orchestration
-   - `content_assistant/agents/orchestrator.py` - Briefing logic
-   - `content_assistant/db/schema.sql` - Database structure
-   - `knowledge/orchestrator/funnel_stages.md` - Funnel definitions
+   - `content_assistant/agents/epa_agent.py` - Main orchestrator
+   - `content_assistant/agents/types.py` - Type definitions
+   - `content_assistant/ui/epa_create_mode.py` - UI
+4. Run `python scripts/test_epa_architecture.py` to verify everything works
 
 ---
 
-## Testing the New Architecture
+## Known Issues and Mitigations
 
-```python
-from content_assistant.agents import AgentCoordinator
+### Issue: Streamlit Warning
+**Warning:** "missing ScriptRunContext" when running outside Streamlit
+**Status:** Safe to ignore - appears when importing Streamlit modules in non-Streamlit context
 
-# Create coordinator
-coordinator = AgentCoordinator()
+### Issue: API Costs
+**Risk:** Opus 4.5 is expensive ($15/M input, $75/M output)
+**Mitigation:** Consider caching, sub-agent result reuse, or Sonnet for non-critical paths
 
-# Process user messages
-result = coordinator.process_message("I want to create content about our detox program")
-print(result["response"])  # Agent's response
-print(result["stage"])     # Current stage
-print(result["stage_complete"])  # Whether to move to next stage
-
-# Continue conversation
-result = coordinator.process_message("It's for Instagram, targeting busy professionals")
-# ... and so on
-```
-
----
-
-## Contact / Questions
-
-This document serves as the handoff between sessions. If continuing development:
-1. Review pending tasks with `TaskList`
-2. Understand the agent flow in `coordinator.py`
-3. Check UI changes needed in `ui/create_mode.py`
+### Issue: Rate Limits
+**Risk:** High volume could hit rate limits
+**Mitigation:** Implement retry with backoff, consider request queuing
