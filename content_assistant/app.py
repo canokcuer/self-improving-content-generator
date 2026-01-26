@@ -29,21 +29,33 @@ from content_assistant.ui.history_sidebar import render_history_sidebar  # noqa:
 from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa: E402
 
 
+def _get_logo_html(logo_path: Path, max_width: int = 400, centered: bool = False) -> str:
+    """Get logo HTML without fullscreen icon."""
+    import base64
+    with open(logo_path, "rb") as f:
+        logo_data = base64.b64encode(f.read()).decode()
+
+    align = "center" if centered else "left"
+    return f'''
+    <div style="text-align: {align}; margin-bottom: 1rem;">
+        <img src="data:image/png;base64,{logo_data}" style="max-width: {max_width}px; width: 100%;">
+    </div>
+    '''
+
+
 def main():
     """Main application entry point."""
     # Check authentication first
     if not check_authentication():
-        # Show logo and title on login page
+        # Show centered logo on login page (no fullscreen icon)
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=350)
-        st.markdown("### Self-Improving Content Generator for TLC")
-        st.markdown("*AI-powered content assistant for wellness marketing*")
+            st.markdown(_get_logo_html(LOGO_PATH, max_width=400, centered=True), unsafe_allow_html=True)
         show_login_form()
         return
 
-    # Logo in sidebar (after sign-in) - use full container width for quality
+    # Logo in sidebar (after sign-in) - no fullscreen icon
     if LOGO_PATH.exists():
-        st.sidebar.image(str(LOGO_PATH), use_container_width=True)
+        st.sidebar.markdown(_get_logo_html(LOGO_PATH, max_width=250, centered=False), unsafe_allow_html=True)
         st.sidebar.divider()
 
     # User info and logout in sidebar
