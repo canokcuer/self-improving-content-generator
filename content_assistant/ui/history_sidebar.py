@@ -32,7 +32,8 @@ def render_history_sidebar() -> None:
         response = api_client.get_generations(limit=10)
 
         if not response.success:
-            st.sidebar.error("Failed to load history")
+            st.sidebar.error(f"Failed to load history: {response.error}")
+            logger.error(f"History load failed: {response.error} (status: {response.status_code})")
             return
 
         generations = response.data or []

@@ -20,8 +20,12 @@ def render_monitoring_dashboard() -> None:
     st.header("Monitoring Dashboard")
 
     # Check admin access first
-    if not _check_admin_access():
-        st.error("Access denied. Admin privileges required.")
+    is_admin, error_msg = _check_admin_access()
+    if not is_admin:
+        if error_msg:
+            st.error(f"Access denied: {error_msg}")
+        else:
+            st.error("Access denied. Admin privileges required.")
         return
 
     # Date range selector
@@ -53,16 +57,23 @@ def render_monitoring_dashboard() -> None:
     _render_recent_activity()
 
 
-def _check_admin_access() -> bool:
-    """Check if current user has admin access via API."""
+def _check_admin_access() -> tuple[bool, str]:
+    """Check if current user has admin access via API.
+
+    Returns:
+        Tuple of (is_admin, error_message)
+    """
     try:
         response = api_client.check_admin_status()
         if response.success and response.data:
-            return response.data.get("is_admin", False)
-        return False
+            return response.data.get("is_admin", False), ""
+        # API call failed - return the actual error
+        error_msg = response.error or f"Status {response.status_code}"
+        logger.error(f"Admin check failed: {error_msg}")
+        return False, error_msg
     except Exception as e:
         logger.error(f"Failed to check admin status: {e}")
-        return False
+        return False, str(e)
 
 
 def _render_cost_overview(start_date, end_date) -> None:
