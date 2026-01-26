@@ -423,20 +423,6 @@ def _render_sidebar() -> None:
         else:
             st.caption("Sign in to save conversations")
 
-        st.divider()
-
-        # Stats
-        epa = st.session_state.epa_agent
-        if epa:
-            st.caption("**Session Stats**")
-            state = epa.get_state()
-            st.caption(f"Stage: {epa.get_stage_display()}")
-            st.caption(f"Brief: {epa.get_brief_summary()}")
-
-            stats = epa.get_stats()
-            if stats.get("total_cost_usd", 0) > 0:
-                st.caption(f"API Cost: ${stats['total_cost_usd']:.4f}")
-
 
 def _process_and_display_response(message: str, response_placeholder) -> None:
     """Process message and display response with thinking indicators."""

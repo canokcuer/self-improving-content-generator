@@ -31,22 +31,19 @@ from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa:
 
 def main():
     """Main application entry point."""
-    # Logo and title on main page
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
+    # Check authentication first
+    if not check_authentication():
+        # Show logo and title on login page
         if LOGO_PATH.exists():
-            st.image(str(LOGO_PATH), width=200)
+            st.image(str(LOGO_PATH), width=350)
         st.markdown("### Self-Improving Content Generator for TLC")
         st.markdown("*AI-powered content assistant for wellness marketing*")
-
-    # Check authentication
-    if not check_authentication():
         show_login_form()
         return
 
-    # Logo in sidebar (after sign-in)
+    # Logo in sidebar (after sign-in) - use full container width for quality
     if LOGO_PATH.exists():
-        st.sidebar.image(str(LOGO_PATH), width=150)
+        st.sidebar.image(str(LOGO_PATH), use_container_width=True)
         st.sidebar.divider()
 
     # User info and logout in sidebar
