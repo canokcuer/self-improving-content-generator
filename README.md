@@ -8,7 +8,7 @@ A self-improving AI content assistant for TheLifeCo's marketing team that create
 |--------|----------|
 | Business Goal | Maximize content performance (engagement, conversions) |
 | Core Thesis | Maximize content quality |
-| Modes | CREATE + REVIEW |
+| Modes | CREATE + REVIEW + MONITOR |
 | Content Types | Email, landing pages, social media, blog posts |
 | Interface | Streamlit web app |
 | AI | Claude Opus 4.5 (Anthropic) |
@@ -71,7 +71,8 @@ EPA must collect ALL of these before generating content:
 
 - **CREATE Mode**: Generate content through EPA's Socratic conversation
 - **REVIEW Mode**: Analyze existing content for wellness accuracy and engagement
-- **Self-Improving**: Learns from user feedback to improve over time
+- **MONITOR Mode**: Track system usage and costs
+- **Self-Improving**: Learns from user feedback (star ratings, checkboxes) to improve over time
 - **A/B Testing**: Built-in experiment framework for testing variations
 - **Strict Fact Policy**: Only uses verified TheLifeCo information from GONCA
 - **Full Context**: CAN receives complete brief + wellness facts for best content
@@ -168,11 +169,25 @@ python scripts/test_epa_architecture.py
 python scripts/test_epa_architecture.py --test full
 ```
 
+## Knowledge Structure
+
+Agent-specific knowledge folders live under `knowledge/`:
+
+```
+knowledge/
+├── orchestrator/
+├── wellness/
+│   └── centers/
+├── storytelling/
+└── brand/
+```
+
 ## Documentation
 
 - [EPA Architecture](./docs/EPA_ARCHITECTURE.md) - Detailed architecture documentation
 - [PLAN.md](./PLAN.md) - Original PRD and implementation plan
-- [Agents Documentation](./docs/agents.md) - Agent system documentation
+- [ARCHITECTURE_CHANGES.md](./ARCHITECTURE_CHANGES.md) - Architecture changes and migration guide
+- [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) - Implementation details
 
 ## License
 

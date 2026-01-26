@@ -1,6 +1,6 @@
 # TheLifeCo Content Assistant - Architecture Changes Summary
 
-**Last Updated:** January 26, 2025
+**Last Updated:** January 26, 2026
 **Purpose:** Document major architecture changes for session continuity
 
 ---
@@ -43,6 +43,64 @@ The system now uses a **true orchestrator pattern** where EPA is the main agent 
 │ • Compliance   │   │ • CTAs         │   │   right agent  │
 └────────────────┘   └────────────────┘   └────────────────┘
 ```
+
+---
+
+## What Changed and Why
+
+### 1. From 13-Question Form → Conversational Briefing
+
+**Before:**
+- Rigid 13-question form (transformation goal, audience, pain point, etc.)
+- Users had to answer all questions sequentially
+- No flexibility or clarification
+
+**After:**
+- Natural conversation with Orchestrator Agent
+- Agent asks clarifying questions until 100% aligned
+- All 13 Socratic questions are enforced before progressing
+- Proactive suggestions based on context
+- Campaign/pricing collected dynamically when needed (not stored in KB)
+
+**Why:**
+- Better user experience
+- More accurate briefs through clarification
+- Flexibility for different content needs
+- Agent can suggest approaches user didn't consider
+
+---
+
+### 2. From Single Generator → Multi-Agent Pipeline
+
+**Before:**
+- Single Claude call for content generation
+- Limited fact-checking
+- No structured feedback loop
+
+**After:**
+- **Orchestrator Agent (EPA):** Conversational briefing, funnel detection
+- **Wellness Agent (GONCA):** Fact verification against knowledge base
+- **Storytelling Agent (CAN):** Content creation with engagement optimization
+- **Review Agent:** Feedback collection, learning extraction
+
+---
+
+### 3. From One-Shot → Persistent Conversations
+
+**Before:**
+- Single request-response interactions
+- No memory of previous sessions
+
+**After:**
+- Conversations persist in database with full agent state
+- Users can continue where they left off
+- Full message history preserved
+- Edit content through ongoing dialogue
+
+**Why:**
+- Content often needs multiple iterations
+- Users return to refine over days/weeks
+- Better context for follow-up requests
 
 ---
 
