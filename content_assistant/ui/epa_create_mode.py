@@ -13,6 +13,8 @@ import streamlit as st
 from typing import Optional
 import logging
 
+import re
+
 from content_assistant.agents import (
     EPAAgent,
     EPAStage,
@@ -22,6 +24,40 @@ from content_assistant.services.api_client import api_client
 from content_assistant.utils.error_handler import handle_error, ErrorType
 
 logger = logging.getLogger(__name__)
+
+
+def _clean_response_content(content: str) -> str:
+    """Clean response content by removing JSON blocks and code that shouldn't be shown to users.
+
+    This filters out:
+    - JSON code blocks (```json ... ```)
+    - Generic code blocks (``` ... ```)
+    - Raw JSON objects that look like tool calls
+    """
+    if not content:
+        return content
+
+    # Remove JSON code blocks (```json ... ```)
+    content = re.sub(r'```json\s*\n[\s\S]*?\n```', '', content)
+
+    # Remove generic code blocks (``` ... ```) that contain JSON-like content
+    def remove_json_blocks(match):
+        block_content = match.group(1)
+        # If it looks like JSON (starts with { or [), remove the whole block
+        if block_content.strip().startswith(('{', '[')):
+            return ''
+        return match.group(0)  # Keep non-JSON code blocks
+
+    content = re.sub(r'```\s*\n([\s\S]*?)\n```', remove_json_blocks, content)
+
+    # Remove raw JSON objects that look like tool responses
+    # Pattern: lines that are just JSON objects
+    content = re.sub(r'^\s*\{[^}]+\}\s*$', '', content, flags=re.MULTILINE)
+
+    # Clean up multiple blank lines
+    content = re.sub(r'\n{3,}', '\n\n', content)
+
+    return content.strip()
 
 
 # Stage display names and descriptions for EPA
@@ -284,7 +320,9 @@ def _render_chat_messages() -> None:
                     }.get(agent.lower(), agent.title())
                     st.caption(f"*{agent_display}*")
 
-                st.markdown(content)
+                # Clean content to remove code blocks and JSON
+                cleaned_content = _clean_response_content(content)
+                st.markdown(cleaned_content)
 
 
 def _render_content_panel() -> None:

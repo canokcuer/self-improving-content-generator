@@ -1,6 +1,6 @@
 """Main Streamlit application entry point.
 
-TheLifeCo Content Marketing Assistant - Self-improving AI content generation.
+Self-Improving Content Generator for TLC - AI-powered content generation.
 """
 
 import sys
@@ -13,11 +13,14 @@ import streamlit as st
 
 # Page configuration - must be first Streamlit command
 st.set_page_config(
-    page_title="TheLifeCo Content Assistant",
+    page_title="Self-Improving Content Generator for TLC",
     page_icon="🌿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# Get logo path
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
 
 from content_assistant.ui.auth import check_authentication, show_login_form, logout  # noqa: E402
 from content_assistant.ui.epa_create_mode import render_epa_create_mode as render_create_mode  # noqa: E402
@@ -28,14 +31,23 @@ from content_assistant.ui.monitoring import render_monitoring_dashboard  # noqa:
 
 def main():
     """Main application entry point."""
-    # Title
-    st.title("🌿 TheLifeCo Content Assistant")
-    st.markdown("*Self-improving AI content assistant for wellness marketing*")
+    # Logo and title on main page
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=200)
+        st.markdown("### Self-Improving Content Generator for TLC")
+        st.markdown("*AI-powered content assistant for wellness marketing*")
 
     # Check authentication
     if not check_authentication():
         show_login_form()
         return
+
+    # Logo in sidebar (after sign-in)
+    if LOGO_PATH.exists():
+        st.sidebar.image(str(LOGO_PATH), width=150)
+        st.sidebar.divider()
 
     # User info and logout in sidebar
     user = st.session_state.get("user", {})
@@ -79,7 +91,7 @@ def main():
 
     # Footer
     st.sidebar.markdown("---")
-    st.sidebar.markdown("v0.1.0 | TheLifeCo")
+    st.sidebar.markdown("v0.1.0 | TLC Content Generator")
     st.sidebar.markdown("[Report Issue](https://github.com/thelifeco/content-assistant/issues)")
 
 
