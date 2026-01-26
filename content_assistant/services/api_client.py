@@ -126,7 +126,7 @@ class APIClient:
     ) -> APIResponse:
         """Make a synchronous HTTP request."""
         try:
-            with httpx.Client(timeout=self._timeout) as client:
+            with httpx.Client(timeout=self._timeout, follow_redirects=True) as client:
                 response = client.request(
                     method=method,
                     url=f"{self.base_url}{endpoint}",
